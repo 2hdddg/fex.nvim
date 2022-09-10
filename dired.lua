@@ -1,4 +1,5 @@
 local api = vim.api
+local M = {}
 
 local function ls(path)
     -- Invoke hardcoded ls command and split it into lines
@@ -31,6 +32,7 @@ local function ls(path)
 end
 
 local function render(buf, ns, path, lsResult)
+    api.nvim_buf_set_option(buf, 'modifiable', true)
     -- Clear existing lines
     api.nvim_buf_set_lines(buf, 0, -1, false, {})
     -- Write lines
@@ -66,43 +68,66 @@ local function render(buf, ns, path, lsResult)
         -- Plus one for newline character
         runningOffset = runningOffset + len + 1
     end
+    api.nvim_buf_set_option(buf, 'modifiable', false)
 end
 
-local function init()
-    local buf = api.nvim_win_get_buf(0)
-    --api.nvim_create_buf(false, true)
-    --
+local function createBuffer()
+    local buf = api.nvim_create_buf(false, true)
+    api.nvim_buf_set_option(buf, 'buftype', 'nofile')
+    api.nvim_buf_set_option(buf, 'bufhidden', 'wipe')
+    api.nvim_buf_set_option(buf, 'filetype', 'dired')
+    return buf
+end
+
+local function isDiredBuffer(buf)
+    return true
+end
+
+local function getPathFromLine(buf, ns, line)
+    local name = getNameFromLine(buf, ns, line)
+    return name
+end
+
+local function getNameFromLine(buf, ns, line)
+    local marks = api.nvim_buf_get_extmarks(buf, ns, line - 1, line - 1, {details = true})
+    local mark = marks[1]
+    local startCol = mark[3]
+    local details = mark[4]
+    local endCol = details["end_col"]
+    local name = api.nvim_buf_get_text(buf, line - 1, startCol, line - 1, endCol, {})
+    return name
+end
+
+local function getNamespace()
+    return api.nvim_create_namespace('dired')
+end
+
+M.open = function()
+    -- Create a new buffer and attach it to the current window
+    local buf = createBuffer()
+    local win = api.nvim_get_current_win()
+    api.nvim_win_set_buf(win, buf)
     -- Ensure namespace exists and clean it up
-    local ns  = api.nvim_create_namespace('dired')
+    local ns  = getNamespace()
     api.nvim_buf_clear_namespace(buf, -1, 0, -1)
     local path = ".."
+    -- Note that this is not guaranteed to be unique TODO
+    api.nvim_buf_set_name(buf, "dired " .. path)
     -- Get files and directories
     local lsResult = ls(path)
     -- Render it
     render(buf, ns, path, lsResult)
 end
 
+M.enter = function()
+    local buf = api.nvim_get_current_buf()
+    if not isDiredBuffer(buf) then
+        return
+    end
+    local ns = getNamespace()
+    local win = api.nvim_get_current_win()
+    local pos = api.nvim_win_get_cursor(win)
+    local path = getPathFromLine(buf, ns, pos[1])
+end
 
-api.nvim_command("botright split new")
-init()
-
-
---local a   = vim.api
---local pos = a.nvim_win_get_cursor(0)
---local ns  = a.nvim_create_namespace('my-plugin')
---print(ns)
--- Create new extmark at line 1, column 1.
---local m1  = a.nvim_buf_set_extmark(0, ns, 0, 0, {})
---print(m1)
--- Create new extmark at line 3, column 2.
---local opts = {end_row = 2}
---local m2  = a.nvim_buf_set_extmark(0, ns, 2, 1, opts)
---print(m2)
--- Get extmarks only from line 3.
---local ms  = a.nvim_buf_get_extmarks(0, ns, {1,0}, {-1,-1}, {details = true})
---print(vim.inspect(ms))
--- Get all marks in this buffer + namespace.
---local all = a.nvim_buf_get_extmarks(0, ns, 0, -1, {})
---print(vim.inspect(all))
---local xm =a.nvim_buf_get_extmark_by_id(0, ns, m2, {details = true})
---print(vim.inspect(xm))
+return M
