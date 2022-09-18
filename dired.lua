@@ -120,6 +120,10 @@ local function isDiredBuffer(buf)
     return true
 end
 
+local function getRootPath(buf)
+    return api.nvim_buf_get_text(buf, 0, 0, 0, -1, {})[1]
+end
+
 local function getInfoFromLine(buf, ns, line)
     local marks = api.nvim_buf_get_extmarks(buf, ns, line - 1, line - 1, {details = true})
     local mark = marks[1]
@@ -130,6 +134,7 @@ local function getInfoFromLine(buf, ns, line)
     local name = api.nvim_buf_get_text(buf, line - 1, startCol, line - 1, endCol, {})[1]
     print(vim.inspect(name))
     return {
+        root = getRootPath(buf),
         name = name,
         lsType = highlightToLsType[highlight],
     }
@@ -194,7 +199,7 @@ M.enter = function()
     local info = getInfoFromLine(buf, ns, pos[1])
     print(vim.inspect(info))
     -- Check if it is a directory, file or link
-    openPath(buf, ns, "../" .. info["name"])
+    openPath(buf, ns, info.root .. "/" .. info["name"])
 end
 
 return M
