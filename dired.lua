@@ -39,17 +39,24 @@ local function ls(path)
     -- Remove the prefix and split into array of strings where each string is a number
     diredOffsets = vim.split(diredOffsets:gsub("//DIRED// ", ""), " ")
     -- lines now looks something like this:
+    --
     --  total 12
     --  drwxrwxr-x  2 peter peter 4096 sep  9 11:08 .
     --  drwxr-xr-x 79 peter peter 4096 sep  9 09:55 ..
     --  -rw-rw-r--  1 peter peter 2660 sep  9 11:08 dired.lua
-    local indexOfFirstFile = 2 -- Index of . line above
+    --
+    -- Add the current path first
+    table.insert(lines, 1, path)
+    local indexOfFirstFile = 3 -- Index of . line above
+    -- Adjust initial offset to include "total 12"
+    local initialDiredOffset = string.len(lines[2]) + 1 -- Plus one for newline
     -- Compose a nice table to consume
     return {
         lines = lines,
         diredOptions = diredOptions,
         diredOffsets = diredOffsets,
         indexOfFirstFile = indexOfFirstFile,
+        initialDiredOffset = initialDiredOffset,
     }
 end
 
@@ -71,10 +78,16 @@ local function render(buf, ns, path, lsResult)
     -- Write lines
     local lines = lsResult.lines
     api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    -- Highlight first line containing current directory
+            api.nvim_buf_set_extmark(buf, ns, 0, 0, {
+                end_row = 0,
+                end_col = string.len(lines[1]),
+                hl_group = lsTypeToHighlight['d'],
+            })
     -- Now loop through each line and mark the position of the filenames,
     -- this is needed to be able to find the filename when navigating and
     -- to make a pretty highlight
-    local runningOffset = 0
+    local runningOffset = lsResult.initialDiredOffset
     local diredOffsets = lsResult.diredOffsets
     for k, v in pairs(lines) do
         local len = string.len(v)
@@ -88,9 +101,9 @@ local function render(buf, ns, path, lsResult)
                 end_col = stop,
                 hl_group = lsTypeToHighlight[typeChar],
             })
+            -- Plus one for newline character
+            runningOffset = runningOffset + len + 1
         end
-        -- Plus one for newline character
-        runningOffset = runningOffset + len + 1
     end
     api.nvim_buf_set_option(buf, 'modifiable', false)
 end
