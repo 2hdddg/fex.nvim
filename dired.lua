@@ -125,14 +125,13 @@ local function getRootPath(buf)
 end
 
 local function getInfoFromLine(buf, ns, line)
-    local marks = api.nvim_buf_get_extmarks(buf, ns, line - 1, line - 1, {details = true})
+    local marks = api.nvim_buf_get_extmarks(buf, ns, {line - 1, 0}, {line - 1, -1}, {details = true})
     local mark = marks[1]
     local startCol = mark[3]
     local details = mark[4]
     local endCol = details["end_col"]
     local highlight = details["hl_group"]
     local name = api.nvim_buf_get_text(buf, line - 1, startCol, line - 1, endCol, {})[1]
-    print(vim.inspect(name))
     return {
         root = getRootPath(buf),
         name = name,
@@ -197,7 +196,6 @@ M.enter = function()
     local win = api.nvim_get_current_win()
     local pos = api.nvim_win_get_cursor(win)
     local info = getInfoFromLine(buf, ns, pos[1])
-    print(vim.inspect(info))
     -- Check if it is a directory, file or link
     openPath(buf, ns, info.root .. "/" .. info["name"])
 end
