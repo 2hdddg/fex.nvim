@@ -5,17 +5,18 @@ local lsTypeToHighlight = {
     d = "netrwDir",
     l = "netrwLink",
     f = "netrwExe",
-    c = "netrwExe",
 }
 local statTypeTolsType = {
     dir = "d",
     file = "f",
     link = "l",
 }
+local id = 0
 local highlightToLsType = {}
 for k, v in pairs(lsTypeToHighlight) do
     highlightToLsType[v] = k
 end
+local indexOfFirstFile = 3 -- Line in buffer containing first file (.)
 
 local function ls(path)
     -- Invoke hardcoded ls command and split it into lines
@@ -47,7 +48,6 @@ local function ls(path)
     --
     -- Add the current path first
     table.insert(lines, 1, path)
-    local indexOfFirstFile = 3 -- Index of . line above
     -- Adjust initial offset to include "total 12"
     local initialDiredOffset = string.len(lines[2]) + 1 -- Plus one for newline
     -- Compose a nice table to consume
@@ -55,7 +55,6 @@ local function ls(path)
         lines = lines,
         diredOptions = diredOptions,
         diredOffsets = diredOffsets,
-        indexOfFirstFile = indexOfFirstFile,
         initialDiredOffset = initialDiredOffset,
     }
 end
@@ -91,7 +90,7 @@ local function render(buf, ns, path, lsResult)
     local diredOffsets = lsResult.diredOffsets
     for k, v in pairs(lines) do
         local len = string.len(v)
-        if k >= lsResult.indexOfFirstFile then
+        if k >= indexOfFirstFile then
             -- nvim_buf_get_extmark uses zero based lines and columns
             local start = tonumber(table.remove(diredOffsets, 1)) - runningOffset
             local stop = tonumber(table.remove(diredOffsets, 1)) - runningOffset
@@ -112,7 +111,8 @@ local function createBuffer()
     local buf = api.nvim_create_buf(false, true)
     api.nvim_buf_set_option(buf, 'buftype', 'nofile')
     api.nvim_buf_set_option(buf, 'bufhidden', 'wipe')
-    api.nvim_buf_set_option(buf, 'filetype', 'dired')
+    api.nvim_buf_set_option(buf, 'filetype', 'fex')
+    api.nvim_buf_set_var(buf, "preview", nil)
     return buf
 end
 
@@ -139,13 +139,9 @@ local function getInfoFromLine(buf, ns, line)
     }
 end
 
-local function getNamespace()
-    return api.nvim_create_namespace('dired')
-end
-
 local function openPath(buf, ns, path)
-    -- Note that this is not guaranteed to be unique TODO
-    api.nvim_buf_set_name(buf, "dired " .. path)
+    id = id + 1
+    api.nvim_buf_set_name(buf, "fex " .. path .. " " .. id)
     -- Get files and directories
     local lsResult = ls(path)
     -- Render it
@@ -158,6 +154,85 @@ local function getLsTypeFromFtype(path)
         return nil
     end
     return statTypeTolsType[ftype]
+end
+
+local function enter(buf, ns, onFile, onDir)
+    -- Find out the path that corresponds to the current line
+    local win = api.nvim_get_current_win()
+    local pos = api.nvim_win_get_cursor(win)
+    local line = pos[1]
+    if line < indexOfFirstFile then
+        return
+    end
+    local info = getInfoFromLine(buf, ns, line)
+    -- Check if it is a directory, file or link
+    if info.lsType == "d" then
+        onDir(info)
+    elseif info.lsType == "f" then
+        onFile(info)
+    else
+        print(info.lsType)
+    end
+end
+
+local function closePreview(buf)
+    local previewWin = api.nvim_buf_get_var(buf, "preview")
+    if previewWin == nil then
+        return
+    end
+    if not api.nvim_win_is_valid(previewWin) then
+        return
+    end
+    api.nvim_win_hide(previewWin)
+end
+
+local function setKeymaps(win, buf, ns)
+    api.nvim_buf_set_keymap(buf, 'n', '<CR>', '', {
+        desc = "Enter directory or open file",
+        callback = function()
+            enter(buf, ns,
+                -- Open file in current window
+                function(info)
+                    vim.cmd('e ' .. info.root .. "/" .. info["name"])
+                end,
+                -- Open directory in current window
+                function(info)
+                    openPath(buf, ns, info.root .. "/" .. info["name"])
+                end)
+        end
+    })
+    api.nvim_buf_set_keymap(buf, 'n', 'v', '', {
+        desc = "Open directory or file in vsplit",
+        callback = function()
+            enter(buf, ns,
+                -- Open file in vs preview window
+                function(info)
+                    closePreview(buf)
+                    vim.cmd('vs ' .. info.root .. "/" .. info["name"])
+                    local newWin = api.nvim_get_current_win()
+                    -- Keep focus in file explorer
+                    api.nvim_set_current_win(win)
+                    api.nvim_buf_set_var(buf, "preview", newWin)
+                end,
+                -- Open directory in vs preview window
+                function(info)
+                    closePreview(buf)
+                    vim.cmd('vs')
+                    local newWin = api.nvim_get_current_win()
+                    M.open(info.root .. "/" .. info["name"])
+                    -- Keep focus in file explorer
+                    api.nvim_set_current_win(win)
+                    api.nvim_buf_set_var(buf, "preview", newWin)
+                end)
+        end
+    })
+    api.nvim_buf_set_keymap(buf, 'n', '-', '', {
+        desc = "Step up",
+        callback = function()
+            local rootPath = getRootPath(buf)
+            M.open(vim.fn.fnamemodify(rootPath, ":h"))
+        end
+    })
 end
 
 M.open = function(path)
@@ -175,29 +250,14 @@ M.open = function(path)
     end
     -- Expand to full path
     path = vim.fn.fnamemodify(path, ":p:h")
+    -- Ensure namespace exists
+    local ns  = api.nvim_create_namespace('fex')
     -- Create a new buffer and attach it to the current window
     local buf = createBuffer()
-    api.nvim_buf_set_option(buf, "filetype", "dired")
     local win = api.nvim_get_current_win()
     api.nvim_win_set_buf(win, buf)
-    -- Ensure namespace exists
-    local ns  = getNamespace()
+    setKeymaps(win, buf, ns)
     openPath(buf, ns, path)
-end
-
-M.enter = function()
-    local buf = api.nvim_get_current_buf()
-    -- Make sure that we are in a dired buffer
-    if not isDiredBuffer(buf) then
-        return
-    end
-    local ns = getNamespace()
-    -- Find out the path that corresponds to the current line
-    local win = api.nvim_get_current_win()
-    local pos = api.nvim_win_get_cursor(win)
-    local info = getInfoFromLine(buf, ns, pos[1])
-    -- Check if it is a directory, file or link
-    openPath(buf, ns, info.root .. "/" .. info["name"])
 end
 
 return M
