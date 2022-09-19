@@ -46,10 +46,10 @@ local function ls(path)
     --  drwxr-xr-x 79 peter peter 4096 sep  9 09:55 ..
     --  -rw-rw-r--  1 peter peter 2660 sep  9 11:08 dired.lua
     --
+    -- Adjust initial offset to include "total 12"
+    local initialDiredOffset = string.len(lines[1]) + 1 -- Plus one for newline
     -- Add the current path first
     table.insert(lines, 1, path)
-    -- Adjust initial offset to include "total 12"
-    local initialDiredOffset = string.len(lines[2]) + 1 -- Plus one for newline
     -- Compose a nice table to consume
     return {
         lines = lines,
@@ -175,6 +175,16 @@ local function enter(buf, ns, onFile, onDir)
     end
 end
 
+local function addToPath(path, toAdd)
+    if toAdd == "." then
+        return path
+    end
+    if toAdd == ".." then
+        return vim.fn.fnamemodify(path, ":h")
+    end
+    return path .. "/" .. toAdd
+end
+
 local function closePreview(buf)
     local previewWin = api.nvim_buf_get_var(buf, "preview")
     if previewWin == nil then
@@ -186,6 +196,16 @@ local function closePreview(buf)
     api.nvim_win_hide(previewWin)
 end
 
+local function openPreview(win, buf, cmd, inNewWindow)
+    closePreview(buf)
+    vim.cmd(cmd)
+    local newWin = api.nvim_get_current_win()
+    inNewWindow()
+    -- Keep focus in file explorer
+    api.nvim_set_current_win(win)
+    api.nvim_buf_set_var(buf, "preview", newWin)
+end
+
 local function setKeymaps(win, buf, ns)
     api.nvim_buf_set_keymap(buf, 'n', '<CR>', '', {
         desc = "Enter directory or open file",
@@ -193,11 +213,11 @@ local function setKeymaps(win, buf, ns)
             enter(buf, ns,
                 -- Open file in current window
                 function(info)
-                    vim.cmd('e ' .. info.root .. "/" .. info["name"])
+                    vim.cmd('e ' .. addToPath(info.root, info.name))
                 end,
                 -- Open directory in current window
                 function(info)
-                    openPath(buf, ns, info.root .. "/" .. info["name"])
+                    openPath(buf, ns, addToPath(info.root, info.name))
                 end)
         end
     })
@@ -207,22 +227,16 @@ local function setKeymaps(win, buf, ns)
             enter(buf, ns,
                 -- Open file in vs preview window
                 function(info)
-                    closePreview(buf)
-                    vim.cmd('vs ' .. info.root .. "/" .. info["name"])
-                    local newWin = api.nvim_get_current_win()
-                    -- Keep focus in file explorer
-                    api.nvim_set_current_win(win)
-                    api.nvim_buf_set_var(buf, "preview", newWin)
+                    openPreview(win, buf, 'vs ' .. addToPath(info.root, info.name),
+                        function()
+                        end)
                 end,
                 -- Open directory in vs preview window
                 function(info)
-                    closePreview(buf)
-                    vim.cmd('vs')
-                    local newWin = api.nvim_get_current_win()
-                    M.open(info.root .. "/" .. info["name"])
-                    -- Keep focus in file explorer
-                    api.nvim_set_current_win(win)
-                    api.nvim_buf_set_var(buf, "preview", newWin)
+                    openPreview(win, buf, 'vs',
+                        function()
+                            M.open(addToPath(info.root, info.name))
+                        end)
                 end)
         end
     })
