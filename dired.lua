@@ -17,11 +17,15 @@ for k, v in pairs(lsTypeToHighlight) do
     highlightToLsType[v] = k
 end
 local indexOfFirstFile = 3 -- Line in buffer containing first file (.)
+local globalOptions = {
+    lsArgs = "-ahl --group-directories-first --time-style=\"long-iso\""
+}
 
-local function ls(path)
+local function ls(path, options)
     -- Invoke hardcoded ls command and split it into lines
     -- The D option enables special dired output that is needed to avoid parsing filenames
-    local output = api.nvim_exec("!ls -ahlD --group-directories-first --time-style=\"long-iso\" " .. path, true)
+    local lsCmd = "!ls -D " .. options.lsArgs .. " " .. path
+    local output = api.nvim_exec(lsCmd, true)
     local lines = vim.split(output, "\n")
     -- Tidy up
     table.remove(lines, 1) -- Contains the ls command
@@ -150,16 +154,16 @@ local function getInfoFromLine(buf, ns, line)
     }
 end
 
-local function openPath(win, buf, ns, path, optionalFilename)
+local function openPath(win, buf, ns, path, optionalFilename, options)
     id = id + 1
     api.nvim_buf_set_name(buf, "fex " .. path .. " " .. id)
     -- Get files and directories
-    local lsResult = ls(path)
+    local lsResult = ls(path, options)
     -- Render it
     render(win, buf, ns, path, lsResult, optionalFilename)
 end
 
-local function getLsTypeFromFtype(path)
+local function getLsTypeFromFtype(path, options)
     local ftype = vim.fn.getftype(path)
     if ftype == nil then
         return nil
@@ -217,7 +221,7 @@ local function openPreview(win, buf, cmd, inNewWindow)
     api.nvim_buf_set_var(buf, "preview", newWin)
 end
 
-local function setKeymaps(win, buf, ns)
+local function setKeymaps(win, buf, ns, options)
     api.nvim_buf_set_keymap(buf, 'n', '<CR>', '', {
         desc = "Enter directory or open file",
         callback = function()
@@ -228,7 +232,7 @@ local function setKeymaps(win, buf, ns)
                 end,
                 -- Open directory in current window
                 function(info)
-                    openPath(win, buf, ns, addToPath(info.root, info.name), nil)
+                    openPath(win, buf, ns, addToPath(info.root, info.name), nil, options)
                 end)
         end
     })
@@ -257,16 +261,32 @@ local function setKeymaps(win, buf, ns)
             local rootPath = getRootPath(buf)
             local name = vim.fn.fnamemodify(rootPath, ":t")
             local parentPath = vim.fn.fnamemodify(rootPath, ":h")
-            openPath(win, buf, ns, parentPath, name)
+            openPath(win, buf, ns, parentPath, name, options)
         end
     })
 end
 
-M.open = function(path)
+local function mergeOptions(defaults, overrides)
+    local options = {}
+    if overrides == nil then
+        return defaults
+    end
+    for k, v in pairs(defaults) do
+        if overrides[k] then
+            options[k] = overrides[k]
+        else
+            options[k] = v
+        end
+    end
+    return options
+end
+
+M.open = function(path, options)
+    options = mergeOptions(globalOptions, options)
     if path == nil then
         path = vim.fn.expand("%:p")
     end
-    local lsType = getLsTypeFromFtype(path)
+    local lsType = getLsTypeFromFtype(path, options)
     if lsType == nil then
         return
     end
@@ -283,8 +303,12 @@ M.open = function(path)
     local buf = createBuffer()
     local win = api.nvim_get_current_win()
     api.nvim_win_set_buf(win, buf)
-    setKeymaps(win, buf, ns)
-    openPath(win, buf, ns, path, filename)
+    setKeymaps(win, buf, ns, options)
+    openPath(win, buf, ns, path, filename, options)
+end
+
+M.setup = function(options)
+    globalOptions = mergeOptions(globalOptions, options)
 end
 
 return M
