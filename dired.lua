@@ -68,7 +68,7 @@ local function getLsTypeFromLine(line)
     return c
 end
 
-local function render(buf, ns, path, lsResult)
+local function render(win, buf, ns, path, lsResult, optionalFilename)
     api.nvim_buf_set_option(buf, 'modifiable', true)
     -- Clear existing lines
     api.nvim_buf_set_lines(buf, 0, -1, false, {})
@@ -88,22 +88,33 @@ local function render(buf, ns, path, lsResult)
     -- to make a pretty highlight
     local runningOffset = lsResult.initialDiredOffset
     local diredOffsets = lsResult.diredOffsets
+    local line = indexOfFirstFile
+    local start
     for k, v in pairs(lines) do
         local len = string.len(v)
         if k >= indexOfFirstFile then
             -- nvim_buf_get_extmark uses zero based lines and columns
-            local start = tonumber(table.remove(diredOffsets, 1)) - runningOffset
+            start = tonumber(table.remove(diredOffsets, 1)) - runningOffset
             local stop = tonumber(table.remove(diredOffsets, 1)) - runningOffset
             local typeChar = getLsTypeFromLine(v)
+            col = start
             api.nvim_buf_set_extmark(buf, ns, k - 1, start, {
                 end_row = k - 1,
                 end_col = stop,
                 hl_group = lsTypeToHighlight[typeChar],
             })
+            if optionalFilename ~= nil then
+                local name = string.sub(v, start+1, stop)
+                if name == optionalFilename then
+                    line = k
+                    optionalFilename = nil
+                end
+            end
             -- Plus one for newline character
             runningOffset = runningOffset + len + 1
         end
     end
+    api.nvim_win_set_cursor(win, {line, start})
     api.nvim_buf_set_option(buf, 'modifiable', false)
 end
 
@@ -139,13 +150,13 @@ local function getInfoFromLine(buf, ns, line)
     }
 end
 
-local function openPath(buf, ns, path)
+local function openPath(win, buf, ns, path, optionalFilename)
     id = id + 1
     api.nvim_buf_set_name(buf, "fex " .. path .. " " .. id)
     -- Get files and directories
     local lsResult = ls(path)
     -- Render it
-    render(buf, ns, path, lsResult)
+    render(win, buf, ns, path, lsResult, optionalFilename)
 end
 
 local function getLsTypeFromFtype(path)
@@ -217,7 +228,7 @@ local function setKeymaps(win, buf, ns)
                 end,
                 -- Open directory in current window
                 function(info)
-                    openPath(buf, ns, addToPath(info.root, info.name))
+                    openPath(win, buf, ns, addToPath(info.root, info.name), nil)
                 end)
         end
     })
@@ -244,7 +255,9 @@ local function setKeymaps(win, buf, ns)
         desc = "Step up",
         callback = function()
             local rootPath = getRootPath(buf)
-            M.open(vim.fn.fnamemodify(rootPath, ":h"))
+            local name = vim.fn.fnamemodify(rootPath, ":t")
+            local parentPath = vim.fn.fnamemodify(rootPath, ":h")
+            openPath(win, buf, ns, parentPath, name)
         end
     })
 end
@@ -271,7 +284,7 @@ M.open = function(path)
     local win = api.nvim_get_current_win()
     api.nvim_win_set_buf(win, buf)
     setKeymaps(win, buf, ns)
-    openPath(buf, ns, path)
+    openPath(win, buf, ns, path, filename)
 end
 
 return M
