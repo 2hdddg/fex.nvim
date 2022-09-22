@@ -22,17 +22,15 @@ local globalOptions = {
 }
 
 local function ls(path, options)
-    -- Invoke hardcoded ls command and split it into lines
+    -- Invoke ls command and split it into lines
     -- The D option enables special dired output that is needed to avoid parsing filenames
-    local lsCmd = "!ls -D " .. options.lsArgs .. " " .. path
-    local output = api.nvim_exec(lsCmd, true)
+    local lsCmd = "ls -D " .. options.lsArgs .. " " .. path
+    local h = io.popen(lsCmd)
+    local output = h:read("*a")
+    h:close()
     local lines = vim.split(output, "\n")
-    -- Tidy up
-    table.remove(lines, 1) -- Contains the ls command
-    table.remove(lines, 1) -- Empty
-    table.remove(lines)    -- Last line is also empty
     -- Parse the dired output
-    -- Ignore stuff in the end, seems to get some error output there sometimes
+    -- Ignore empty stuff in the end
     local foundDired
     local diredOptions
     while not foundDired do
@@ -40,9 +38,6 @@ local function ls(path, options)
         foundDired = string.sub(diredOptions, 1, 8) == "//DIRED-"
     end
     local diredOffsets = table.remove(lines) -- offsets
-    -- Tidy up the offsets to be more usable
-    -- Remove the prefix and split into array of strings where each string is a number
-    diredOffsets = vim.split(diredOffsets:gsub("//DIRED// ", ""), " ")
     -- lines now looks something like this:
     --
     --  total 12
@@ -50,6 +45,9 @@ local function ls(path, options)
     --  drwxr-xr-x 79 peter peter 4096 sep  9 09:55 ..
     --  -rw-rw-r--  1 peter peter 2660 sep  9 11:08 dired.lua
     --
+    -- Tidy up the offsets to be more usable
+    -- Remove the prefix and split into array of strings where each string is a number
+    diredOffsets = vim.split(diredOffsets:gsub("//DIRED// ", ""), " ")
     -- Adjust initial offset to include "total 12"
     local initialDiredOffset = string.len(lines[1]) + 1 -- Plus one for newline
     -- Add the current path first
@@ -222,48 +220,68 @@ local function openPreview(win, buf, cmd, inNewWindow)
 end
 
 local function setKeymaps(win, buf, ns, options)
-    api.nvim_buf_set_keymap(buf, 'n', '<CR>', '', {
-        desc = "Enter directory or open file",
-        callback = function()
-            enter(buf, ns,
-                -- Open file in current window
-                function(info)
-                    vim.cmd('e ' .. addToPath(info.root, info.name))
-                end,
-                -- Open directory in current window
-                function(info)
-                    openPath(win, buf, ns, addToPath(info.root, info.name), nil, options)
-                end)
-        end
-    })
-    api.nvim_buf_set_keymap(buf, 'n', 'v', '', {
-        desc = "Open directory or file in vsplit",
-        callback = function()
-            enter(buf, ns,
-                -- Open file in vs preview window
-                function(info)
-                    openPreview(win, buf, 'vs ' .. addToPath(info.root, info.name),
-                        function()
-                        end)
-                end,
-                -- Open directory in vs preview window
-                function(info)
-                    openPreview(win, buf, 'vs',
-                        function()
-                            M.open(addToPath(info.root, info.name))
-                        end)
-                end)
-        end
-    })
-    api.nvim_buf_set_keymap(buf, 'n', '-', '', {
-        desc = "Step up",
-        callback = function()
-            local rootPath = getRootPath(buf)
-            local name = vim.fn.fnamemodify(rootPath, ":t")
-            local parentPath = vim.fn.fnamemodify(rootPath, ":h")
-            openPath(win, buf, ns, parentPath, name, options)
-        end
-    })
+    -- Preview utility function, set cmd to vs or sp
+    local function preview(cmd)
+        enter(buf, ns,
+            -- Open file in preview window
+            function(info)
+                openPreview(win, buf, cmd .. " " .. addToPath(info.root, info.name),
+                    function()
+                    end)
+            end,
+            -- Open directory in preview window
+            function(info)
+                openPreview(win, buf, cmd,
+                    function()
+                        M.open(addToPath(info.root, info.name))
+                    end)
+            end)
+    end
+
+    keymaps = {
+        {
+            keys = "<CR>",
+            desc = "Step into directory or open file in current window",
+            func = function()
+                enter(buf, ns,
+                    -- Open file in current window
+                    function(info)
+                        vim.cmd('e ' .. addToPath(info.root, info.name))
+                    end,
+                    -- Open directory in current window
+                    function(info)
+                        openPath(win, buf, ns, addToPath(info.root, info.name), nil, options)
+                    end)
+            end,
+        },
+        {
+            keys = "v",
+            desc = "Open preview of directory or file in vertical split window",
+            func = function() preview("vs") end,
+        },
+        {
+            keys = "s",
+            desc = "Open preview of directory or file in split window",
+            func = function() preview("sp") end,
+        },
+        {
+            keys = "-",
+            desc = "Step into parent directory",
+            func = function()
+                local rootPath = getRootPath(buf)
+                local name = vim.fn.fnamemodify(rootPath, ":t")
+                local parentPath = vim.fn.fnamemodify(rootPath, ":h")
+                openPath(win, buf, ns, parentPath, name, options)
+            end,
+        },
+    }
+    for i = 1, #keymaps do
+        m = keymaps[i]
+        api.nvim_buf_set_keymap(buf, 'n', m.keys, '', {
+            desc = m.desc,
+            callback = m.func,
+        })
+    end
 end
 
 local function mergeOptions(defaults, overrides)
