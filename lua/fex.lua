@@ -1,6 +1,6 @@
 local M = {}
 local api = vim.api
-local statTypeTolsType = {
+local statTypeToType = {
     dir = "FexDir",
     file = "FexFile",
     link = "FexLink",
@@ -9,6 +9,14 @@ local id = 0
 local globalOptions = {
     lsArgs = "-ahl --group-directories-first --time-style=\"long-iso\""
 }
+
+local function getTypeFromFtype(path, options)
+    local ftype = vim.fn.getftype(path)
+    if ftype == nil then
+        return nil
+    end
+    return statTypeToType[ftype]
+end
 
 local function onRoot(buf, parser, line, diredSize)
     -- Retrieve name without ending :
@@ -143,9 +151,8 @@ local function render(ctx, path, selectName)
                 end_col = #v.name,
                 hl_group = "FexDir",
             })
-        elseif v.type == "FexFile" then
-            hl = v.type
-        elseif v.type == "FexDir" then
+        elseif v.type == "FexBlank" or v.type == "FexTotal" then
+        else
             hl = v.type
         end
         if hl ~= nil then
@@ -155,6 +162,14 @@ local function render(ctx, path, selectName)
             local name = api.nvim_buf_get_text(buf, k - 1, start, k - 1, stop, {})[1]
             -- Store the name in meta data
             v.name = name
+            if v.type == "FexLink" then
+                -- Also store the link path
+                local linkPath = api.nvim_buf_get_text(buf, k - 1, stop + 4, k - 1, -1, {})[1]
+                v.linkPath = linkPath
+                -- Check type of the link
+                v.linkType = getTypeFromFtype(linkPath)
+                hl = v.linkType
+            end
             api.nvim_buf_set_extmark(buf, ns, k - 1, start, {
                 end_row = k - 1,
                 end_col = stop,
@@ -217,9 +232,8 @@ local function getInfoFromLine(buf, ns, line)
     local entry = lines[line]
     local root = findRoot(lines, line, -1)
     return {
-        root = root.name,
-        name = entry.name,
-        type = entry.type,
+        root = root,
+        entry = entry,
     }
 end
 
@@ -227,32 +241,6 @@ local function openPath(ctx, path, optionalFilename)
     id = id + 1
     api.nvim_buf_set_name(ctx.buf, "fex " .. path .. " " .. id)
     render(ctx, path, optionalFilename)
-end
-
-local function getTypeFromFtype(path, options)
-    local ftype = vim.fn.getftype(path)
-    if ftype == nil then
-        return nil
-    end
-    return statTypeTolsType[ftype]
-end
-
-local function enter(ctx, onFile, onDir)
-    -- Find out the path that corresponds to the current line
-    local pos = api.nvim_win_get_cursor(ctx.win)
-    local line = pos[1]
-    local info = getInfoFromLine(ctx.buf, ctx.ns, line)
-    if info == nil then
-        return
-    end
-    -- Check if it is a directory, file or link
-    if info.type == "FexDir" then
-        onDir(info)
-    elseif info.type == "FexFile" then
-        onFile(info)
-    else
-        --print("bad type")
-    end
 end
 
 local function addToPath(path, toAdd)
@@ -263,6 +251,30 @@ local function addToPath(path, toAdd)
         return vim.fn.fnamemodify(path, ":h")
     end
     return path .. "/" .. toAdd
+end
+
+local function enter(ctx, onFile, onDir)
+    -- Find out the path that corresponds to the current line
+    local pos = api.nvim_win_get_cursor(ctx.win)
+    local line = pos[1]
+    local info = getInfoFromLine(ctx.buf, ctx.ns, line)
+    if info == nil then
+        return
+    end
+    local type = info.entry.type
+    local path = addToPath(info.root.name, info.entry.name)
+    if type == "FexLink" then
+        type = info.entry.linkType
+        path = info.entry.linkPath
+        print(type)
+    end
+
+    -- Check if it is a directory, file or link
+    if type == "FexDir" then
+        onDir(path)
+    elseif type == "FexFile" then
+        onFile(path)
+    end
 end
 
 local function closePreview(buf)
@@ -305,16 +317,16 @@ local function setKeymaps(outerCtx)
     local function preview(ctx, cmd)
         enter(ctx,
             -- Open file in preview window
-            function(info)
-                openPreview(ctx, cmd .. " " .. addToPath(info.root, info.name),
+            function(path)
+                openPreview(ctx, cmd .. " " .. path,
                     function()
                     end)
             end,
             -- Open directory in preview window
-            function(info)
+            function(path)
                 openPreview(ctx, cmd,
                     function()
-                        M.open(addToPath(info.root, info.name))
+                        M.open(path)
                     end)
             end)
     end
@@ -326,12 +338,12 @@ local function setKeymaps(outerCtx)
             func = function()
                 enter(ctxFromCurrent(),
                     -- Open file in current window
-                    function(info)
-                        vim.cmd('e ' .. addToPath(info.root, info.name))
+                    function(path)
+                        vim.cmd('e ' .. path)
                     end,
                     -- Open directory in current window
-                    function(info)
-                        openPath(ctxFromCurrent(), addToPath(info.root, info.name))
+                    function(path)
+                        openPath(ctxFromCurrent(), path)
                     end)
             end,
         },
@@ -388,7 +400,7 @@ M.open = function(path, options)
     if path == nil then
         path = vim.fn.expand("%:p")
     end
-    local type = getTypeFromFtype(path, options)
+    local type = getTypeFromFtype(path)
     if type == nil then
         return
     end
