@@ -133,6 +133,7 @@ local function render(ctx, path, selectName)
     local diredOffsets = parser.diredOffsets
     local adjusted = 0
     local selectLine
+    local selectColumn
     for k, v in pairs(parser.lines) do
         local hl = nil
         if v.type == "FexRoot" then
@@ -162,6 +163,7 @@ local function render(ctx, path, selectName)
             if selectName ~= nil then
                 if name == selectName then
                     selectLine = k
+                    selectColumn = start
                     selectName = nil
                 end
             end
@@ -171,12 +173,12 @@ local function render(ctx, path, selectName)
         end
     end
     if selectLine then
-        api.nvim_win_set_cursor(win, {selectLine, 0})
+        api.nvim_win_set_cursor(win, {selectLine, selectColumn})
     end
     -- Store data about the parsed lines in buffer variable
     api.nvim_buf_set_var(buf, "lines", parser.lines)
     -- Make it read only
-    api.nvim_buf_set_option(buf, 'modifiable', false)
+    --api.nvim_buf_set_option(buf, 'modifiable', false)
 end
 
 local function createBuffer(options)
