@@ -160,6 +160,10 @@ local function render(ctx, path, selectName)
                 end_col = stop,
                 hl_group = hl,
             })
+            if selectLine == nil then
+                selectLine = k
+                selectColumn = start
+            end
             if selectName ~= nil then
                 if name == selectName then
                     selectLine = k
@@ -178,7 +182,7 @@ local function render(ctx, path, selectName)
     -- Store data about the parsed lines in buffer variable
     api.nvim_buf_set_var(buf, "lines", parser.lines)
     -- Make it read only
-    --api.nvim_buf_set_option(buf, 'modifiable', false)
+    api.nvim_buf_set_option(buf, 'modifiable', false)
 end
 
 local function createBuffer(options)
@@ -196,17 +200,13 @@ local function isDiredBuffer(buf)
     return true
 end
 
-local function getRootPath(buf)
-    return api.nvim_buf_get_text(buf, 0, 0, 0, -1, {})[1]
-end
-
-local function findRoot(lines, line)
-    while line > 0 do
+local function findRoot(lines, line, delta)
+    while line > 0 and line < (#lines + 1) do
         x = lines[line]
         if x.type == "FexRoot" then
             return x
         end
-        line = line - 1
+        line = line + delta
     end
     print("not found")
 end
@@ -215,7 +215,7 @@ local function getInfoFromLine(buf, ns, line)
     -- Retrieve lines meta data
     local lines = api.nvim_buf_get_var(buf, "lines")
     local entry = lines[line]
-    local root = findRoot(lines, line)
+    local root = findRoot(lines, line, -1)
     return {
         root = root.name,
         name = entry.name,
@@ -350,9 +350,11 @@ local function setKeymaps(outerCtx)
             desc = "Step into parent directory",
             func = function()
                 local ctx = ctxFromCurrent()
-                local rootPath = getRootPath(ctx.buf)
-                local name = vim.fn.fnamemodify(rootPath, ":t")
-                local parentPath = vim.fn.fnamemodify(rootPath, ":h")
+                local lines = api.nvim_buf_get_var(ctx.buf, "lines")
+                local root = findRoot(lines, 1, 1)
+                local name = vim.fn.fnamemodify(root.name, ":t")
+                local parentPath = vim.fn.fnamemodify(root.name, ":h")
+                print(name)
                 openPath(ctx, parentPath, name)
             end,
         },
