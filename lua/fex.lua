@@ -1,218 +1,20 @@
 local M = {}
 local api = vim.api
-local statTypeToType = {
-    dir = "FexDir",
-    file = "FexFile",
-    link = "FexLink",
-}
 local id = 0
 local globalOptions = {
-    lsArgs = "-ahl --group-directories-first --time-style=\"long-iso\""
+    ls = "-ahl --group-directories-first --time-style=\"long-iso\""
 }
-
-local function getTypeFromFtype(path, options)
-    local ftype = vim.fn.getftype(path)
-    if ftype == nil then
-        return nil
-    end
-    return statTypeToType[ftype]
-end
-
-local function onRoot(buf, parser, line, diredSize)
-    -- Retrieve name without ending :
-    name = string.sub(line, 1, #line - 1)
-    table.insert(parser.lines, {type = "FexRoot", dired = diredSize, name = name, parent = 0, adjusted = -2})
-    api.nvim_buf_set_lines(buf, -2, -2, false, {line})
-    parser.line = parser.line + 1
-    parser.state = 1
-end
-
-local function onTotal(buf, parser, line, diredSize)
-    table.insert(parser.lines, {type = "FexTotal", dired = diredSize})
-    api.nvim_buf_set_lines(buf, -2, -2, false, {line})
-    parser.line = parser.line + 1
-    parser.state = 2
-end
-
-local function onEmpty(buf, parser, diredSize)
-    --  Enters new section
-    parser.state = 0
-    table.insert(parser.lines, {type = "FexBlank", dired = diredSize})
-    api.nvim_buf_set_lines(buf, -2, -2, false, {""})
-    parser.line = parser.line + 1
-end
-
-local function onDired(buf, parser, line)
-    parser.state = 2
-    sub = string.sub(line, 1, 8)
-    if sub == "//DIRED-" then
-        -- options
-    elseif sub == "//DIRED/" then
-        -- Offsets
-        parser.diredOffsets = vim.split(line:gsub("//DIRED// ", ""), " ")
-    end
-end
-
-local function onEntry(buf, parser, line, diredSize)
-    -- Use first char to determine if this is a directory, file, link..
-    prefix = string.sub(line, 1, 1)
-    local type
-    if prefix == "d" then
-        type = "FexDir"
-    elseif prefix == "l" then
-        type = "FexLink"
-    elseif prefix == "-" then
-        type = "FexFile"
-    end
-    table.insert(parser.lines, {type = type, dired = diredSize})
-    api.nvim_buf_set_lines(buf, -2, -2, false, {line})
-    parser.line = parser.line + 1
-    parser.state = 3
-end
-
-local function parseLine(buf, parser, line)
-    if line == nil then
-        return false
-    end
-    -- Keep note of the initial size of this for dired rendering
-    local size = string.len(line) + 1 -- Plus one for newline
-    -- Trim initial white space
-    line = string.gsub(line, "^%s+", "")
-    -- Root?
-    if parser.state == 0 then
-        -- Expecting either a total or a directory, in case of directory it ends with :
-        if string.sub(line, #line, #line) == ":" then
-            onRoot(buf, parser, line, size)
-            return true
-        end
-    end
-    -- Root or total?
-    if parser.state == 0 or parser.state == 1 then
-        if string.find(line, "total", 1, true) ~= nil then
-            if parser.state == 0 then
-                -- Add missing root
-                onRoot(buf, parser, parser.root .. ":", 0)
-                parser.parent = parser.line
-            end
-            -- Add total
-            onTotal(buf, parser, line, size)
-            return true
-        end
-        print("error")
-        return false
-    end
-    -- Empty line?
-    if line == "" then
-        --  Enters new section
-        onEmpty(buf, parser, size)
-        return true
-    end
-    local prefix = string.sub(line, 1, 2)
-    -- Dired data?
-    if prefix == "//" then
-        onDired(buf, parser, line)
-        return true
-    end
-    -- Within directory listing
-    onEntry(buf, parser, line, size)
-    return true
-end
-
-local function render(ctx, path, selectName)
-    local buf = ctx.buf
-    local win = ctx.win
-    local options = ctx.options
-    local ns = ctx.ns
-    api.nvim_buf_set_option(buf, 'modifiable', true)
-    -- Clear existing lines
-    api.nvim_buf_set_lines(buf, 0, -1, false, {})
-    -- Clear highlights
-    api.nvim_buf_clear_namespace(buf, -1, 0, -1)
-    -- Invoke ls command and parse and render the result line by line
-    -- The D option enables special dired output that is needed to avoid parsing filenames
-    local lsCmd = "ls -D " .. options.lsArgs .. " " .. path
-    local h = io.popen(lsCmd)
-    local parser = { root = path, line = 0, lines = {}, state = 0 }
-    while parseLine(buf, parser, h:read("*line")) do
-    end
-    -- Apply dired offsets to be able to locate and highlight names without
-    -- having to bother about filename parsing
-    local runningOffset = 0
-    local diredOffsets = parser.diredOffsets
-    local adjusted = 0
-    local selectLine
-    local selectColumn
-    for k, v in pairs(parser.lines) do
-        local hl = nil
-        if v.type == "FexRoot" then
-            adjusted = v.adjusted
-            api.nvim_buf_set_extmark(buf, ns, k - 1, 0, {
-                end_row = k - 1,
-                end_col = #v.name,
-                hl_group = "FexDir",
-            })
-        elseif v.type == "FexBlank" or v.type == "FexTotal" then
-        else
-            hl = v.type
-        end
-        if hl ~= nil then
-            -- Pop start and stop from offsets
-            local start = tonumber(table.remove(diredOffsets, 1)) - runningOffset + adjusted
-            local stop = tonumber(table.remove(diredOffsets, 1)) - runningOffset + adjusted
-            local name = api.nvim_buf_get_text(buf, k - 1, start, k - 1, stop, {})[1]
-            -- Store the name in meta data
-            v.name = name
-            if v.type == "FexLink" then
-                -- Also store the link path
-                local linkPath = api.nvim_buf_get_text(buf, k - 1, stop + 4, k - 1, -1, {})[1]
-                v.linkPath = linkPath
-                -- Check type of the link
-                v.linkType = getTypeFromFtype(linkPath)
-                hl = v.linkType
-            end
-            api.nvim_buf_set_extmark(buf, ns, k - 1, start, {
-                end_row = k - 1,
-                end_col = stop,
-                hl_group = hl,
-            })
-            if selectLine == nil then
-                selectLine = k
-                selectColumn = start
-            end
-            if selectName ~= nil then
-                if name == selectName then
-                    selectLine = k
-                    selectColumn = start
-                    selectName = nil
-                end
-            end
-        end
-        if v.dired > 0 then
-            runningOffset = runningOffset + v.dired
-        end
-    end
-    if selectLine then
-        api.nvim_win_set_cursor(win, {selectLine, selectColumn})
-    end
-    -- Store data about the parsed lines in buffer variable
-    api.nvim_buf_set_var(buf, "lines", parser.lines)
-    -- Make it read only
-    api.nvim_buf_set_option(buf, 'modifiable', false)
-end
+local render = require("render").render
+local getTypeFromFtype = require("render").getTypeFromFtype
 
 local function createBuffer(options)
     local buf = api.nvim_create_buf(false, true)
     api.nvim_buf_set_option(buf, 'buftype', 'nofile')
     api.nvim_buf_set_option(buf, 'bufhidden', 'wipe')
     api.nvim_buf_set_option(buf, 'filetype', 'fex')
-    api.nvim_buf_set_var(buf, "preview", nil)
-    api.nvim_buf_set_var(buf, "lines", nil)
     api.nvim_buf_set_var(buf, "options", options)
+    api.nvim_buf_set_var(buf, "preview", nil)
     return buf
-end
-
-local function isDiredBuffer(buf)
-    return true
 end
 
 local function findRoot(lines, line, delta)
@@ -240,7 +42,9 @@ end
 local function openPath(ctx, path, optionalFilename)
     id = id + 1
     api.nvim_buf_set_name(ctx.buf, "fex " .. path .. " " .. id)
-    render(ctx, path, optionalFilename)
+    local lines = render(ctx.win, ctx.buf, ctx.ns, ctx.options, path, optionalFilename)
+    -- Store data about the parsed lines in buffer variable
+    api.nvim_buf_set_var(ctx.buf, "lines", lines)
 end
 
 local function addToPath(path, toAdd)
@@ -366,7 +170,6 @@ local function setKeymaps(outerCtx)
                 local root = findRoot(lines, 1, 1)
                 local name = vim.fn.fnamemodify(root.name, ":t")
                 local parentPath = vim.fn.fnamemodify(root.name, ":h")
-                print(name)
                 openPath(ctx, parentPath, name)
             end,
         },
@@ -381,10 +184,10 @@ local function setKeymaps(outerCtx)
 end
 
 local function mergeOptions(defaults, overrides)
-    local options = {}
     if overrides == nil then
         return defaults
     end
+    local options = {}
     for k, v in pairs(defaults) do
         if overrides[k] then
             options[k] = overrides[k]
