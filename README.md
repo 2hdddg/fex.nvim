@@ -13,6 +13,8 @@ require("fex").setup({ls = "-al"})
 Default ls listing is based on output with option as set:
     ls = "-ahl --group-directories-first --time-style="long-iso"
 
+ls option must contain -l for dired data to become available.
+
 To start browsing current buffers directory, run command Fex or
     require("fex").open("/whatever/file_or_directory", {ls = "-l"})
 Wehere both path and options are optional. If path is not specified path to current buffer is used.
@@ -23,7 +25,6 @@ In the file browser the following keymaps are available (currently not configura
 * s to open preview of directory or file in split window
 * - to step into parent directory
 
-Current Limitations:
-* Symbolic links does not work properly
-* No way to do operations on files like deletes, move, create file/directory
+Current Limitations being wokred on:
+* No operations like deletes, move, create file/directory
 * Hardcoded color scheme, based on netrw
