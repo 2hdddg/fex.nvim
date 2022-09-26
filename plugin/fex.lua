@@ -7,6 +7,7 @@ vim.g.loaded_fex = 1
 local highlights = {
     FexDir = { default = true, link = "netrwDir" },
     FexFile = { default = true, link = "netrwExe" },
+    FexLink = { default = true, link = "netrwQuickHelp" },
 }
 for k, v in pairs(highlights) do
   vim.api.nvim_set_hl(0, k, v)

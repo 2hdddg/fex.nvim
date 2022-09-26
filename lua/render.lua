@@ -132,6 +132,7 @@ M.render = function(win, buf, ns, options, path, selectName)
     local adjusted = 0
     local selectLine
     local selectColumn
+    local currentRoot
     for k, v in pairs(parser.lines) do
         local hl = nil
         if v.type == "FexRoot" then
@@ -141,6 +142,7 @@ M.render = function(win, buf, ns, options, path, selectName)
                 end_col = #v.name,
                 hl_group = "FexDir",
             })
+            currentRoot = v.name
         elseif v.type == "FexBlank" or v.type == "FexTotal" then
         else
             hl = v.type
@@ -153,12 +155,19 @@ M.render = function(win, buf, ns, options, path, selectName)
             -- Store the name in meta data
             v.name = name
             if v.type == "FexLink" then
-                -- Also store the link path
-                local linkPath = api.nvim_buf_get_text(buf, k - 1, stop + 4, k - 1, -1, {})[1]
+                local linkDef = api.nvim_buf_get_text(buf, k - 1, stop + 4, k - 1, -1, {})[1]
+                -- Resolve the link TODO fix / (also handle multiple roots?)
+                local linkPath = vim.fn.resolve(currentRoot .. "/" .. name)
+                -- Store the resolved link path and if it points to a directory or file
+                -- TODO test if it points to another link? Handled by resolve?
                 v.linkPath = linkPath
-                -- Check type of the link
                 v.linkType = getTypeFromFtype(linkPath)
-                hl = v.linkType
+                -- Highlight the link with the type that it points to
+                api.nvim_buf_set_extmark(buf, ns, k - 1, stop + 4, {
+                    end_row = k - 1,
+                    end_col = stop + 4 + #linkDef,
+                    hl_group = v.linkType,
+                })
             end
             api.nvim_buf_set_extmark(buf, ns, k - 1, start, {
                 end_row = k - 1,
