@@ -1,22 +1,5 @@
 local M = {}
-
 local api = vim.api
-
-local statTypeToType = {
-    dir = "FexDir",
-    file = "FexFile",
-    link = "FexLink",
-}
-
-local function getTypeFromFtype(path)
-    local ftype = vim.fn.getftype(path)
-    if ftype == nil then
-        return nil
-    end
-    return statTypeToType[ftype]
-end
--- Export this as well
-M.getTypeFromFtype = getTypeFromFtype
 
 local function insertLine(buf, parser, line, meta)
     table.insert(parser.lines, meta)
@@ -34,12 +17,12 @@ end
 local function onRoot(buf, parser, line, diredSize)
     -- Retrieve name without ending : and append a trailing slash instead
     local name = string.sub(line, 1, #line - 1) .. "/"
-    insertLine(buf, parser, name, {type = "FexRoot", dired = diredSize, name = name, adjusted = -2})
+    insertLine(buf, parser, name, {isRoot = true, isDir = true, dired = diredSize, name = name, adjusted = -2})
     parser.state = 1
 end
 
 local function onTotal(buf, parser, line, diredSize)
-    insertLine(buf, parser, line, {type = "FexTotal", dired = diredSize})
+    insertLine(buf, parser, line, {isTotal = true, dired = diredSize})
     parser.state = 2
 end
 
@@ -61,16 +44,18 @@ end
 
 local function onEntry(buf, parser, line, diredSize)
     -- Use first char to determine if this is a directory, file, link..
-    local type
+    local meta = {dired = diredSize }
     local prefix = string.sub(line, 1, 1)
+    local type
     if prefix == "d" then
-        type = "FexDir"
+        meta.isDir = true
     elseif prefix == "l" then
-        type = "FexLink"
+        meta.isLink = true
     elseif prefix == "-" then
-        type = "FexFile"
+        meta.isFile = true
     end
-    insertLine(buf, parser, line, {type = type, dired = diredSize})
+    meta.type = type
+    insertLine(buf, parser, line, meta)
     parser.state = 3
 end
 
@@ -143,36 +128,44 @@ M.render = function(win, buf, ns, options, path, selectName)
     local selectColumn
     local currentRoot
     for k, v in pairs(parser.lines) do
-        local hl = nil
-        if v.type == "FexRoot" then
+        if v.isRoot then
             adjusted = v.adjusted
-            api.nvim_buf_set_extmark(buf, ns, k - 1, 0, {
-                end_row = k - 1,
-                end_col = #v.name,
-                hl_group = "FexDir",
-            })
+            highlight(buf, ns, k - 1, 0, #v.name, "FexDir")
             currentRoot = v.name
-        elseif v.type == "FexBlank" or v.type == "FexTotal" then
+        elseif v.isTotal or v.isBlank then
         else
-            hl = v.type
-        end
-        if hl ~= nil then
             -- Pop start and stop from offsets
             local start = tonumber(table.remove(diredOffsets, 1)) - runningOffset + adjusted
             local stop = tonumber(table.remove(diredOffsets, 1)) - runningOffset + adjusted
             local name = api.nvim_buf_get_text(buf, k - 1, start, k - 1, stop, {})[1]
             -- Store the name in meta data
             v.name = name
-            if v.type == "FexLink" then
+            if v.isLink then
                 local linkDef = api.nvim_buf_get_text(buf, k - 1, stop + 4, k - 1, -1, {})[1]
                 -- Resolve the link TODO fix / (also handle multiple roots?)
                 local linkPath = vim.fn.resolve(currentRoot .. "/" .. name)
                 -- Store the resolved link path and if it points to a directory or file
                 -- TODO test if it points to another link? Handled by resolve?
                 v.linkPath = linkPath
-                v.linkType = getTypeFromFtype(linkPath)
+                local ftype = vim.fn.getftype(linkPath)
+                local hl
+                if ftype == "dir" then
+                    v.isDir = true
+                    hl = "FexDir"
+                else
+                    v.isFile = true
+                    hl = "FexFile"
+                end
                 -- Highlight the link with the type that it points to
-                highlight(buf, ns, k - 1, stop + 4, stop + 4 + #linkDef, v.linkType)
+                highlight(buf, ns, k - 1, stop + 4, stop + 4 + #linkDef, hl)
+            end
+            local hl
+            if v.isLink then
+                hl = "FexLink"
+            elseif v.isDir then
+                hl = "FexDir"
+            else
+                hl = "FexFile"
             end
             highlight(buf, ns, k - 1, start, stop, hl)
             if selectLine == nil then

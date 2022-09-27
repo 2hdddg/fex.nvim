@@ -5,7 +5,6 @@ local globalOptions = {
     ls = "-ahl --group-directories-first --time-style=\"long-iso\""
 }
 local render = require("render").render
-local getTypeFromFtype = require("render").getTypeFromFtype
 
 local function createBuffer(options)
     local buf = api.nvim_create_buf(false, true)
@@ -28,7 +27,7 @@ end
 local function findRoot(lines, line, delta)
     while line > 0 and line < (#lines + 1) do
         x = lines[line]
-        if x.type == "FexRoot" then
+        if x.isRoot then
             return x
         end
         line = line + delta
@@ -74,17 +73,13 @@ local function enter(ctx, onFile, onDir)
     if info == nil then
         return
     end
-    local type = info.entry.type
     local path = addToPath(info.root.name, info.entry.name)
-    if type == "FexLink" then
-        type = info.entry.linkType
+    if info.entry.isLink then
         path = info.entry.linkPath
     end
-
-    -- Check if it is a directory, file or link
-    if type == "FexDir" then
+    if info.entry.isDir then
         onDir(path)
-    elseif type == "FexFile" then
+    else
         onFile(path)
     end
 end
@@ -212,12 +207,12 @@ M.open = function(path, options)
     if path == nil then
         path = vim.fn.expand("%:p")
     end
-    local type = getTypeFromFtype(path)
-    if type == nil then
+    local ftype = vim.fn.getftype(path)
+    if ftype == nil then
         return
     end
     local filename = nil
-    if type == "FexFile" then
+    if ftype == "file" then
         -- Extract filename
         filename = vim.fn.fnamemodify(path, ":t")
     end
