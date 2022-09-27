@@ -177,6 +177,24 @@ local function setKeymaps(outerCtx)
                 openPath(ctx, parentPath, name)
             end,
         },
+        {
+            keys = "%",
+            desc = "Create new file in current directory",
+            func = function()
+                local ctx = ctxFromCurrent()
+                local lines = api.nvim_buf_get_var(ctx.buf, "lines")
+                local pos = api.nvim_win_get_cursor(ctx.win)
+                local line = pos[1]
+                local root = findRoot(lines, line, -1)
+                local name = vim.fn.input("Filename:")
+                local path = addToPath(root.name, name)
+                vim.fn.writefile({}, path)
+                openPath(ctx, root.name, name)
+            end,
+        },
+        -- vim.fn.mkdir
+        -- vim.fn.delete
+        -- vim.fn.rename
     }
     for i = 1, #keymaps do
         m = keymaps[i]
