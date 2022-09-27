@@ -20,13 +20,21 @@ M.getTypeFromFtype = getTypeFromFtype
 
 local function insertLine(buf, parser, line, meta)
     table.insert(parser.lines, meta)
-    api.nvim_buf_set_lines(buf, -2, -2, false, {line})
+    api.nvim_buf_set_lines(buf, #parser.lines - 1, #parser.lines, false, {line})
+end
+
+local function highlight(buf, ns, line, colstart, colend, hl_group)
+    api.nvim_buf_set_extmark(buf, ns, line, colstart, {
+        end_row = line,
+        end_col = colend,
+        hl_group = hl_group,
+    })
 end
 
 local function onRoot(buf, parser, line, diredSize)
-    -- Retrieve name without ending :
-    local name = string.sub(line, 1, #line - 1)
-    insertLine(buf, parser, line, {type = "FexRoot", dired = diredSize, name = name, adjusted = -2})
+    -- Retrieve name without ending : and append a trailing slash instead
+    local name = string.sub(line, 1, #line - 1) .. "/"
+    insertLine(buf, parser, name, {type = "FexRoot", dired = diredSize, name = name, adjusted = -2})
     parser.state = 1
 end
 
@@ -36,7 +44,8 @@ local function onTotal(buf, parser, line, diredSize)
 end
 
 local function onEmpty(buf, parser, diredSize)
-    insertLine(buf, parser, "", {type = "FexBlank", dired = diredSize})
+    -- TODO if/when supporting ls -lR (recursive)
+    --insertLine(buf, parser, "", {type = "FexBlank", dired = diredSize})
     parser.state = 0 --  Enters new section
 end
 
@@ -163,17 +172,9 @@ M.render = function(win, buf, ns, options, path, selectName)
                 v.linkPath = linkPath
                 v.linkType = getTypeFromFtype(linkPath)
                 -- Highlight the link with the type that it points to
-                api.nvim_buf_set_extmark(buf, ns, k - 1, stop + 4, {
-                    end_row = k - 1,
-                    end_col = stop + 4 + #linkDef,
-                    hl_group = v.linkType,
-                })
+                highlight(buf, ns, k - 1, stop + 4, stop + 4 + #linkDef, v.linkType)
             end
-            api.nvim_buf_set_extmark(buf, ns, k - 1, start, {
-                end_row = k - 1,
-                end_col = stop,
-                hl_group = hl,
-            })
+            highlight(buf, ns, k - 1, start, stop, hl)
             if selectLine == nil then
                 selectLine = k
                 selectColumn = start

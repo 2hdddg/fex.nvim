@@ -17,6 +17,14 @@ local function createBuffer(options)
     return buf
 end
 
+local function trimTrailingSlash(path)
+    -- Needs to remove the trailing slash if there is one
+    if string.sub(path, #path, #path) == "/" then
+        return string.sub(path, 1, #path - 1)
+    end
+    return path
+end
+
 local function findRoot(lines, line, delta)
     while line > 0 and line < (#lines + 1) do
         x = lines[line]
@@ -48,6 +56,7 @@ local function openPath(ctx, path, optionalFilename)
 end
 
 local function addToPath(path, toAdd)
+    path = trimTrailingSlash(path)
     if toAdd == "." then
         return path
     end
@@ -70,7 +79,6 @@ local function enter(ctx, onFile, onDir)
     if type == "FexLink" then
         type = info.entry.linkType
         path = info.entry.linkPath
-        print(type)
     end
 
     -- Check if it is a directory, file or link
@@ -168,8 +176,9 @@ local function setKeymaps(outerCtx)
                 local ctx = ctxFromCurrent()
                 local lines = api.nvim_buf_get_var(ctx.buf, "lines")
                 local root = findRoot(lines, 1, 1)
-                local name = vim.fn.fnamemodify(root.name, ":t")
-                local parentPath = vim.fn.fnamemodify(root.name, ":h")
+                local path = trimTrailingSlash(root.name)
+                local name = vim.fn.fnamemodify(path, ":t")
+                local parentPath = vim.fn.fnamemodify(path, ":h")
                 openPath(ctx, parentPath, name)
             end,
         },
