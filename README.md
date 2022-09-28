@@ -24,7 +24,16 @@ In the file browser the following keymaps are available (currently not configura
 * v to open preview of directory or file in vertical split window
 * s to open preview of directory or file in split window
 * - to step into parent directory
+* % to create new file in current directory
+* d to create new directory in current directory
+* D to delete file or directory
 
-Current Limitations being wokred on:
-* No operations like deletes, move, create file/directory
-* Hardcoded color scheme, based on netrw
+Currently planned to implement in this order:
+* Yank full path corresponding to current line
+* "Terminal here", switch file explorer window into a terminal with current directory matching the one in file explorer
+* Rename file/directory
+* Recursive rendering of subdirectories with indentation to a specified depth (not relying on ls -R)
+* Folding of above
+* Open file/directory in vsplit/split without attaching preview to it
+* Configurable keymaps
+* Configurable color scheme

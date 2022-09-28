@@ -5,6 +5,7 @@ local globalOptions = {
     ls = "-ahl --group-directories-first --time-style=\"long-iso\""
 }
 local render = require("render").render
+local paths = require("paths")
 
 local function createBuffer(options)
     local buf = api.nvim_create_buf(false, true)
@@ -16,68 +17,46 @@ local function createBuffer(options)
     return buf
 end
 
-local function trimTrailingSlash(path)
-    -- Needs to remove the trailing slash if there is one
-    if string.sub(path, #path, #path) == "/" then
-        return string.sub(path, 1, #path - 1)
-    end
-    return path
+local function getLines(ctx)
+    return api.nvim_buf_get_var(ctx.buf, "lines")
 end
 
-local function findRoot(lines, line, delta)
-    while line > 0 and line < (#lines + 1) do
-        x = lines[line]
-        if x.isRoot then
-            return x
+local function currentLineNumber(ctx)
+    return api.nvim_win_get_cursor(ctx.win)[1]
+end
+
+local function rootLine(ctx)
+    local lines = getLines(ctx)
+    local lineNumber = currentLineNumber(ctx)
+    while lineNumber > 0 do
+        local line = lines[lineNumber]
+        if line.isRoot then
+            return line
         end
-        line = line + delta
+        lineNumber = lineNumber - 1
     end
-    print("not found")
 end
 
-local function getInfoFromLine(buf, ns, line)
-    -- Retrieve lines meta data
-    local lines = api.nvim_buf_get_var(buf, "lines")
-    local entry = lines[line]
-    local root = findRoot(lines, line, -1)
-    return {
-        root = root,
-        entry = entry,
-    }
+local function currentLine(ctx)
+    return getLines(ctx)[currentLineNumber(ctx)]
 end
 
-local function openPath(ctx, path, optionalFilename)
+local function open(ctx, path, optionalFilename)
     id = id + 1
     api.nvim_buf_set_name(ctx.buf, "fex " .. path .. " " .. id)
-    local lines = render(ctx.win, ctx.buf, ctx.ns, ctx.options, path, optionalFilename)
+    local lines = render(ctx, path, optionalFilename)
     -- Store data about the parsed lines in buffer variable
     api.nvim_buf_set_var(ctx.buf, "lines", lines)
 end
 
-local function addToPath(path, toAdd)
-    path = trimTrailingSlash(path)
-    if toAdd == "." then
-        return path
-    end
-    if toAdd == ".." then
-        return vim.fn.fnamemodify(path, ":h")
-    end
-    return path .. "/" .. toAdd
-end
-
 local function enter(ctx, onFile, onDir)
-    -- Find out the path that corresponds to the current line
-    local pos = api.nvim_win_get_cursor(ctx.win)
-    local line = pos[1]
-    local info = getInfoFromLine(ctx.buf, ctx.ns, line)
-    if info == nil then
-        return
+    local root = rootLine(ctx)
+    local curr = currentLine(ctx)
+    local path = paths.add(root.name, curr.name)
+    if curr.isLink then
+        path = curr.linkPath
     end
-    local path = addToPath(info.root.name, info.entry.name)
-    if info.entry.isLink then
-        path = info.entry.linkPath
-    end
-    if info.entry.isDir then
+    if curr.isDir then
         onDir(path)
     else
         onFile(path)
@@ -150,7 +129,7 @@ local function setKeymaps(outerCtx)
                     end,
                     -- Open directory in current window
                     function(path)
-                        openPath(ctxFromCurrent(), path)
+                        open(ctxFromCurrent(), path)
                     end)
             end,
         },
@@ -169,12 +148,11 @@ local function setKeymaps(outerCtx)
             desc = "Step into parent directory",
             func = function()
                 local ctx = ctxFromCurrent()
-                local lines = api.nvim_buf_get_var(ctx.buf, "lines")
-                local root = findRoot(lines, 1, 1)
-                local path = trimTrailingSlash(root.name)
-                local name = vim.fn.fnamemodify(path, ":t")
-                local parentPath = vim.fn.fnamemodify(path, ":h")
-                openPath(ctx, parentPath, name)
+                local root = rootLine(ctx)
+                local path = paths.full(root.name)
+                local currDir = paths.directory(path)
+                local parentDir = paths.directory(currDir)
+                open(ctx, parentDir, paths.name(currDir))
             end,
         },
         {
@@ -182,16 +160,50 @@ local function setKeymaps(outerCtx)
             desc = "Create new file in current directory",
             func = function()
                 local ctx = ctxFromCurrent()
-                local lines = api.nvim_buf_get_var(ctx.buf, "lines")
-                local pos = api.nvim_win_get_cursor(ctx.win)
-                local line = pos[1]
-                local root = findRoot(lines, line, -1)
-                local name = vim.fn.input("Filename:")
-                local path = addToPath(root.name, name)
+                local root = rootLine(ctx)
+                local name = vim.fn.input("New file:")
+                if name == "" then
+                    return
+                end
+                local path = paths.add(root.name, name)
                 vim.fn.writefile({}, path)
-                openPath(ctx, root.name, name)
+                open(ctx, root.name, name)
             end,
         },
+        {
+            keys = "d",
+            desc = "Create new directory in current directory",
+            func = function()
+                local ctx = ctxFromCurrent()
+                local root = rootLine(ctx)
+                local name = vim.fn.input("New directory:")
+                if name == "" then
+                    return
+                end
+                local path = paths.add(root.name, name)
+                vim.fn.mkdir(path)
+                open(ctx, root.name, name)
+            end,
+        },
+        {
+            keys = "D",
+            desc = "Delete file or directory",
+            func = function()
+                local ctx = ctxFromCurrent()
+                local root = rootLine(ctx)
+                local curr = currentLine(ctx)
+                local flags = ""
+                if curr.isDir then
+                    flags = "d"
+                end
+                local path = paths.add(root.name, curr.name)
+                local choice = vim.fn.confirm("Delete " .. path, "&Yes\n&No")
+                if choice == 1 then
+                    vim.fn.delete(path, flags)
+                    open(ctx, root.name)
+                end
+            end,
+        }
         -- vim.fn.mkdir
         -- vim.fn.delete
         -- vim.fn.rename
@@ -223,19 +235,15 @@ end
 M.open = function(path, options)
     options = mergeOptions(globalOptions, options)
     if path == nil then
-        path = vim.fn.expand("%:p")
+        path = paths.currentFile()
+    else
+        path = paths.full(path)
     end
-    local ftype = vim.fn.getftype(path)
-    if ftype == nil then
-        return
+    local directory = path
+    local filename = paths.name(path)
+    if filename then
+        directory = paths.directory(path)
     end
-    local filename = nil
-    if ftype == "file" then
-        -- Extract filename
-        filename = vim.fn.fnamemodify(path, ":t")
-    end
-    -- Expand to full path
-    path = vim.fn.fnamemodify(path, ":p:h")
     local ns  = ensureNamespace()
     -- Create a new buffer and attach it to the current window
     local buf = createBuffer(options)
@@ -248,7 +256,7 @@ M.open = function(path, options)
         options = options,
     }
     setKeymaps(ctx)
-    openPath(ctx, path, filename)
+    open(ctx, directory, filename)
 end
 
 M.setup = function(options)
