@@ -1,12 +1,14 @@
 # fex.nvim
-Neovim file explorer based on Emacs dired plugin, very similair to netrw.
-Files and directories are displayed by ls command and parsed through ls dired support
-in a standard vim buffer which makes it easy to navigate and copy stuff.
+Neovim file explorer based on ideas from Emacs dired plugin and Vims very own netrw.
+
+Basic idea is that listed files and directories should behave like read only vim buffer.
+
+Files and directories are displayed by ls command and parsed through ls dired support.
 
 Install with plug:
   Plug '2hdddg/fex.nvim'
 
-Setup is currently optional and only provides option to set parameters to ls command
+Setup is currently optional and only provides option to set parameters to ls command.
 
 require("fex").setup({ls = "-al"})
 
@@ -27,11 +29,11 @@ In the file browser the following keymaps are available (currently not configura
 * % to create new file in current directory
 * d to create new directory in current directory
 * D to delete file or directory
+* R to rename current directory or file
 
 Currently planned to implement in this order:
 * Yank full path corresponding to current line
 * "Terminal here", switch file explorer window into a terminal with current directory matching the one in file explorer
-* Rename file/directory
 * Recursive rendering of subdirectories with indentation to a specified depth (not relying on ls -R)
 * Folding of above
 * Open file/directory in vsplit/split without attaching preview to it

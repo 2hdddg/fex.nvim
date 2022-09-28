@@ -25,7 +25,7 @@ local function currentLineNumber(ctx)
     return api.nvim_win_get_cursor(ctx.win)[1]
 end
 
-local function rootLine(ctx)
+local function getRoot(ctx)
     local lines = getLines(ctx)
     local lineNumber = currentLineNumber(ctx)
     while lineNumber > 0 do
@@ -37,10 +37,6 @@ local function rootLine(ctx)
     end
 end
 
-local function currentLine(ctx)
-    return getLines(ctx)[currentLineNumber(ctx)]
-end
-
 local function open(ctx, path, optionalFilename)
     id = id + 1
     api.nvim_buf_set_name(ctx.buf, "fex " .. path .. " " .. id)
@@ -49,17 +45,27 @@ local function open(ctx, path, optionalFilename)
     api.nvim_buf_set_var(ctx.buf, "lines", lines)
 end
 
+local function getCurrent(ctx)
+    local curr = getLines(ctx)[currentLineNumber(ctx)]
+    -- Patch things together in a non-standard way..
+    curr.root = getRoot(ctx)
+    if curr.isRoot then
+        curr.fullPath = curr.root.name
+    else
+        curr.fullPath = paths.add(curr.root.name, curr.name)
+    end
+    return curr
+end
+
 local function enter(ctx, onFile, onDir)
-    local root = rootLine(ctx)
-    local curr = currentLine(ctx)
-    local path = paths.add(root.name, curr.name)
+    local curr = getCurrent(ctx)
     if curr.isLink then
         path = curr.linkPath
     end
     if curr.isDir then
-        onDir(path)
+        onDir(curr.fullPath)
     else
-        onFile(path)
+        onFile(curr.fullPath)
     end
 end
 
@@ -148,7 +154,7 @@ local function setKeymaps(outerCtx)
             desc = "Step into parent directory",
             func = function()
                 local ctx = ctxFromCurrent()
-                local root = rootLine(ctx)
+                local root = getRoot(ctx)
                 local path = paths.full(root.name)
                 local currDir = paths.directory(path)
                 local parentDir = paths.directory(currDir)
@@ -160,14 +166,14 @@ local function setKeymaps(outerCtx)
             desc = "Create new file in current directory",
             func = function()
                 local ctx = ctxFromCurrent()
-                local root = rootLine(ctx)
+                local curr = getCurrent(ctx)
                 local name = vim.fn.input("New file:")
                 if name == "" then
                     return
                 end
-                local path = paths.add(root.name, name)
+                local path = paths.add(curr.root.name, name)
                 vim.fn.writefile({}, path)
-                open(ctx, root.name, name)
+                open(ctx, curr.root.name, name)
             end,
         },
         {
@@ -175,7 +181,7 @@ local function setKeymaps(outerCtx)
             desc = "Create new directory in current directory",
             func = function()
                 local ctx = ctxFromCurrent()
-                local root = rootLine(ctx)
+                local root = getRoot(ctx)
                 local name = vim.fn.input("New directory:")
                 if name == "" then
                     return
@@ -190,23 +196,33 @@ local function setKeymaps(outerCtx)
             desc = "Delete file or directory",
             func = function()
                 local ctx = ctxFromCurrent()
-                local root = rootLine(ctx)
-                local curr = currentLine(ctx)
+                local curr = getCurrent(ctx)
                 local flags = ""
                 if curr.isDir then
                     flags = "d"
                 end
-                local path = paths.add(root.name, curr.name)
-                local choice = vim.fn.confirm("Delete " .. path, "&Yes\n&No")
+                local choice = vim.fn.confirm("Delete " .. curr.fullPath, "&Yes\n&No")
                 if choice == 1 then
-                    vim.fn.delete(path, flags)
-                    open(ctx, root.name)
+                    vim.fn.delete(curr.fullPath, flags)
+                    open(ctx, curr.root.name)
                 end
             end,
+        },
+        {
+            keys = "R",
+            desc = "Rename file or directory",
+            func = function()
+                local ctx = ctxFromCurrent()
+                local curr = getCurrent(ctx)
+                local toPath = vim.fn.input("Rename " .. curr.fullPath .. " to:", curr.fullPath)
+                if name == "" then
+                    return
+                end
+                vim.fn.rename(curr.fullPath, toPath)
+                -- TODO: If root changes we need to open something else..
+                open(ctx, curr.root.name)
+            end,
         }
-        -- vim.fn.mkdir
-        -- vim.fn.delete
-        -- vim.fn.rename
     }
     for i = 1, #keymaps do
         m = keymaps[i]
