@@ -28,7 +28,7 @@ end
 
 local function onEmpty(ctx, parser, diredSize)
     -- TODO if/when supporting ls -lR (recursive)
-    --insertLine(buf, parser, "", {type = "FexBlank", dired = diredSize})
+    --insertLine(ctx, parser, "", {type = "FexBlank", dired = diredSize})
     parser.state = 0 --  Enters new section
 end
 

@@ -30,9 +30,9 @@ In the file browser the following keymaps are available (currently not configura
 * d to create new directory in current directory
 * D to delete file or directory
 * R to rename current directory or file
+* Y yanks full path of the current file or directory
 
 Currently planned to implement in this order:
-* Yank full path corresponding to current line
 * "Terminal here", switch file explorer window into a terminal with current directory matching the one in file explorer
 * Recursive rendering of subdirectories with indentation to a specified depth (not relying on ls -R)
 * Folding of above

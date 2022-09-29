@@ -2,16 +2,16 @@ local M = {}
 local api = vim.api
 local id = 0
 local globalOptions = {
-    ls = "-ahl --group-directories-first --time-style=\"long-iso\""
+    ls = "-ahl --group-directories-first --time-style=\"long-iso\"",
 }
 local render = require("render").render
 local paths = require("paths")
 
 local function createBuffer(options)
     local buf = api.nvim_create_buf(false, true)
-    api.nvim_buf_set_option(buf, 'buftype', 'nofile')
-    api.nvim_buf_set_option(buf, 'bufhidden', 'wipe')
-    api.nvim_buf_set_option(buf, 'filetype', 'fex')
+    api.nvim_buf_set_option(buf, "buftype", "nofile")
+    api.nvim_buf_set_option(buf, "bufhidden", "wipe")
+    api.nvim_buf_set_option(buf, "filetype", "fex")
     api.nvim_buf_set_var(buf, "options", options)
     api.nvim_buf_set_var(buf, "preview", nil)
     return buf
@@ -37,7 +37,7 @@ local function getRoot(ctx)
     end
 end
 
-local function open(ctx, path, optionalFilename)
+local function show(ctx, path, optionalFilename)
     id = id + 1
     api.nvim_buf_set_name(ctx.buf, "fex " .. path .. " " .. id)
     local lines = render(ctx, path, optionalFilename)
@@ -51,13 +51,13 @@ local function getCurrent(ctx)
     curr.root = getRoot(ctx)
     if curr.isRoot then
         curr.fullPath = curr.root.name
-    else
+    elseif curr.isFile or curr.isDir then
         curr.fullPath = paths.add(curr.root.name, curr.name)
     end
     return curr
 end
 
-local function enter(ctx, onFile, onDir)
+local function view(ctx, onFile, onDir)
     local curr = getCurrent(ctx)
     if curr.isLink then
         path = curr.linkPath
@@ -80,14 +80,32 @@ local function closePreview(buf)
     api.nvim_win_hide(previewWin)
 end
 
-local function openPreview(ctx, cmd, inNewWindow)
-    closePreview(ctx.buf)
-    vim.cmd(cmd)
-    local newWin = api.nvim_get_current_win()
-    inNewWindow()
-    -- Keep focus in file explorer
-    api.nvim_set_current_win(ctx.win)
-    api.nvim_buf_set_var(ctx.buf, "preview", newWin)
+-- Preview utility function, set cmd to vs or sp
+local function preview(ctx, cmd)
+    local function maintainWindows(ctx, cmd, inNewWindow)
+        closePreview(ctx.buf)
+        vim.cmd(cmd)
+        local newWin = api.nvim_get_current_win()
+        inNewWindow()
+        -- Keep focus in file explorer
+        api.nvim_set_current_win(ctx.win)
+        api.nvim_buf_set_var(ctx.buf, "preview", newWin)
+    end
+
+    view(ctx,
+        -- Open file in preview window
+        function(path)
+            maintainWindows(ctx, cmd .. " " .. path,
+                function()
+                end)
+        end,
+        -- Open directory in preview window
+        function(path)
+            maintainWindows(ctx, cmd,
+                function()
+                    M.open(path)
+                end)
+        end)
 end
 
 local function ensureNamespace()
@@ -104,143 +122,119 @@ local function ctxFromCurrent()
     }
 end
 
-local function setKeymaps(outerCtx)
-    -- Preview utility function, set cmd to vs or sp
-    local function preview(ctx, cmd)
-        enter(ctx,
-            -- Open file in preview window
-            function(path)
-                openPreview(ctx, cmd .. " " .. path,
-                    function()
-                    end)
-            end,
-            -- Open directory in preview window
-            function(path)
-                openPreview(ctx, cmd,
-                    function()
-                        M.open(path)
-                    end)
-            end)
-    end
+M.view = function()
+    view(ctxFromCurrent(),
+        -- Open file in current window
+        function(path)
+            vim.cmd('e ' .. path)
+        end,
+        -- Open directory in current window
+        function(path)
+            show(ctxFromCurrent(), path)
+        end)
+end
 
-    keymaps = {
-        {
-            keys = "<CR>",
-            desc = "Step into directory or open file in current window",
-            func = function()
-                enter(ctxFromCurrent(),
-                    -- Open file in current window
-                    function(path)
-                        vim.cmd('e ' .. path)
-                    end,
-                    -- Open directory in current window
-                    function(path)
-                        open(ctxFromCurrent(), path)
-                    end)
-            end,
-        },
-        {
-            keys = "v",
-            desc = "Open preview of directory or file in vertical split window",
-            func = function() preview(ctxFromCurrent(), "vs") end,
-        },
-        {
-            keys = "s",
-            desc = "Open preview of directory or file in split window",
-            func = function() preview(ctxFromCurrent(), "sp") end,
-        },
-        {
-            keys = "-",
-            desc = "Step into parent directory",
-            func = function()
-                local ctx = ctxFromCurrent()
-                local root = getRoot(ctx)
-                local path = paths.full(root.name)
-                local currDir = paths.directory(path)
-                local parentDir = paths.directory(currDir)
-                open(ctx, parentDir, paths.name(currDir))
-            end,
-        },
-        {
-            keys = "%",
-            desc = "Create new file in current directory",
-            func = function()
-                local ctx = ctxFromCurrent()
-                local curr = getCurrent(ctx)
-                local name = vim.fn.input("New file:")
-                if name == "" then
-                    return
-                end
-                local path = paths.add(curr.root.name, name)
-                vim.fn.writefile({}, path)
-                open(ctx, curr.root.name, name)
-            end,
-        },
-        {
-            keys = "d",
-            desc = "Create new directory in current directory",
-            func = function()
-                local ctx = ctxFromCurrent()
-                local root = getRoot(ctx)
-                local name = vim.fn.input("New directory:")
-                if name == "" then
-                    return
-                end
-                local path = paths.add(root.name, name)
-                vim.fn.mkdir(path)
-                open(ctx, root.name, name)
-            end,
-        },
-        {
-            keys = "D",
-            desc = "Delete file or directory",
-            func = function()
-                local ctx = ctxFromCurrent()
-                local curr = getCurrent(ctx)
-                local flags = ""
-                if curr.isDir then
-                    flags = "d"
-                end
-                local choice = vim.fn.confirm("Delete " .. curr.fullPath, "&Yes\n&No")
-                if choice == 1 then
-                    vim.fn.delete(curr.fullPath, flags)
-                    open(ctx, curr.root.name)
-                end
-            end,
-        },
-        {
-            keys = "R",
-            desc = "Rename file or directory",
-            func = function()
-                local ctx = ctxFromCurrent()
-                local curr = getCurrent(ctx)
-                local toPath = vim.fn.input("Rename " .. curr.fullPath .. " to:", curr.fullPath)
-                if name == "" then
-                    return
-                end
-                vim.fn.rename(curr.fullPath, toPath)
-                -- TODO: If root changes we need to open something else..
-                open(ctx, curr.root.name)
-            end,
-        }
-    }
+M.viewParent = function()
+    local ctx = ctxFromCurrent()
+    local root = getRoot(ctx)
+    local path = paths.full(root.name)
+    local currDir = paths.directory(path)
+    local parentDir = paths.directory(currDir)
+    show(ctx, parentDir, paths.name(currDir))
+end
+
+M.previewSp = function()
+    preview(ctxFromCurrent(), "sp")
+end
+
+M.previewVs = function()
+    preview(ctxFromCurrent(), "vs")
+end
+
+M.createDirectory = function()
+    local ctx = ctxFromCurrent()
+    local root = getRoot(ctx)
+    local name = vim.fn.input("New directory:")
+    if name == "" then
+        return
+    end
+    local path = paths.add(root.name, name)
+    vim.fn.mkdir(path)
+    show(ctx, root.name, name)
+end
+
+M.createFile = function()
+    local ctx = ctxFromCurrent()
+    local curr = getCurrent(ctx)
+    local name = vim.fn.input("New file:")
+    if name == "" then
+        return
+    end
+    local path = paths.add(curr.root.name, name)
+    vim.fn.writefile({}, path)
+    show(ctx, curr.root.name, name)
+end
+
+M.delete = function()
+    local ctx = ctxFromCurrent()
+    local curr = getCurrent(ctx)
+    local flags
+    if curr.isDir then
+        flags = "d"
+    elseif curr.isFile then
+        flags = ""
+    else
+        return
+    end
+    local choice = vim.fn.confirm("Delete " .. curr.fullPath, "&Yes\n&No")
+    if choice == 1 then
+        vim.fn.delete(curr.fullPath, flags)
+        show(ctx, curr.root.name)
+    end
+end
+
+M.rename = function()
+    local ctx = ctxFromCurrent()
+    local curr = getCurrent(ctx)
+    if not (curr.isDir or curr.isFile) then
+        return
+    end
+    local toPath = vim.fn.input("Rename " .. curr.fullPath .. " to:", curr.fullPath)
+    if name == "" then
+        return
+    end
+    vim.fn.rename(curr.fullPath, toPath)
+    -- TODO: If root changes we need to open something else..
+    show(ctx, curr.root.name)
+end
+
+M.yankPath = function()
+    local curr = getCurrent(ctxFromCurrent())
+    vim.fn.setreg(vim.v.register, curr.fullPath, "l")
+end
+
+local function setKeymaps(ctx, keymaps)
     for i = 1, #keymaps do
         m = keymaps[i]
-        api.nvim_buf_set_keymap(outerCtx.buf, 'n', m.keys, '', {
+        api.nvim_buf_set_keymap(ctx.buf, 'n', m.keys, '', {
             desc = m.desc,
             callback = m.func,
         })
     end
 end
 
-local function mergeOptions(defaults, overrides)
+local function merge(defaults, overrides)
     if overrides == nil then
         return defaults
     end
     local options = {}
     for k, v in pairs(defaults) do
         if overrides[k] then
-            options[k] = overrides[k]
+            if type(v) == "table" then
+                options[k] = merge(v, overrides[k])
+            else
+                options[k] = overrides[k]
+            end
         else
             options[k] = v
         end
@@ -249,7 +243,7 @@ local function mergeOptions(defaults, overrides)
 end
 
 M.open = function(path, options)
-    options = mergeOptions(globalOptions, options)
+    options = merge(globalOptions, options)
     if path == nil then
         path = paths.currentFile()
     else
@@ -271,12 +265,59 @@ M.open = function(path, options)
         ns = ns,
         options = options,
     }
-    setKeymaps(ctx)
-    open(ctx, directory, filename)
+    local keymaps = {
+        {
+            keys = "<CR>",
+            desc = "Step into directory or open file in current window",
+            func = M.view,
+        },
+        {
+            keys = "v",
+            desc = "Open preview of directory or file in vertical split window",
+            func = M.previewVs,
+        },
+        {
+            keys = "s",
+            desc = "Open preview of directory or file in split window",
+            func = M.previewSp,
+        },
+        {
+            keys = "-",
+            desc = "Step into parent directory",
+            func = M.viewParent,
+        },
+        {
+            keys = "%",
+            desc = "Create new file in current directory",
+            func = M.createFile,
+        },
+        {
+            keys = "d",
+            desc = "Create new directory in current directory",
+            func = M.createDirectory,
+        },
+        {
+            keys = "D",
+            desc = "Delete file or directory",
+            func = M.delete,
+        },
+        {
+            keys = "R",
+            desc = "Rename file or directory",
+            func = M.rename,
+        },
+        {
+            keys = "Y",
+            desc = "Yank full path to file or directory",
+            func = M.yankPath,
+        },
+    }
+    setKeymaps(ctx, keymaps)
+    show(ctx, directory, filename)
 end
 
 M.setup = function(options)
-    globalOptions = mergeOptions(globalOptions, options)
+    globalOptions = merge(globalOptions, options)
 end
 
 return M
