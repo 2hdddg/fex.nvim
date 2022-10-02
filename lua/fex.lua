@@ -213,6 +213,49 @@ M.yankPath = function()
     vim.fn.setreg(vim.v.register, curr.fullPath, "l")
 end
 
+M.terminalHere = function()
+    local ctx = ctxFromCurrent()
+    local curr = getCurrent(ctx)
+    local path
+    if curr.isFile then
+        path = curr.root.name
+    elseif curr.isDir then
+        path = curr.fullPath
+    else
+        return
+    end
+
+    -- Create new listed buf. List it so that any running jobs in the terminal
+    -- isn't lost to the user.
+    local terminalBuf = api.nvim_create_buf(true, true)
+    -- Switch to showing the new buffer. This will erase the current fex buffer.
+    vim.api.nvim_win_set_buf(ctx.win, terminalBuf)
+    local chanId = vim.fn.termopen("/bin/bash", {cwd = path})
+    if chanId == 0 or chanId == -1 then
+        print("Error")
+        return
+    end
+    local function toggleBack()
+        -- Executing in terminal buffer. Reopen the explorer but terminate
+        -- any jobs running in the terminal first. Should perhaps be a way
+        -- to notify user about this... Best way would be to be able to detect
+        -- any running jobs in the shell and prevent toggling back when something
+        -- is running.
+        api.nvim_buf_set_option(terminalBuf, "bufhidden", "wipe")
+        vim.fn.jobstop(chanId)
+        vim.fn.jobwait({chanId}, 1000)
+        M.open(path, ctx.options)
+    end
+
+    api.nvim_buf_set_keymap(terminalBuf, 'n', "<C-z>", '', {
+        callback = toggleBack,
+    })
+    api.nvim_buf_set_keymap(terminalBuf, 't', "<C-z>", '', {
+        callback = toggleBack,
+    })
+    vim.cmd("startinsert")
+end
+
 local function setKeymaps(ctx, keymaps)
     for i = 1, #keymaps do
         m = keymaps[i]
@@ -310,6 +353,11 @@ M.open = function(path, options)
             keys = "Y",
             desc = "Yank full path to file or directory",
             func = M.yankPath,
+        },
+        {
+            keys = "<C-z>",
+            desc = "Terminal here",
+            func = M.terminalHere,
         },
     }
     setKeymaps(ctx, keymaps)
