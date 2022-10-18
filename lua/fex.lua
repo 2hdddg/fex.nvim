@@ -3,6 +3,7 @@ local api = vim.api
 local id = 0
 local globalOptions = {
     ls = "-ahl --group-directories-first --time-style=\"long-iso\"",
+    toggleBackFromTerminal = "C-z",
 }
 local render = require("render").render
 local paths = require("paths")
@@ -246,11 +247,10 @@ M.terminalHere = function()
         vim.fn.jobwait({chanId}, 1000)
         M.open(path, ctx.options)
     end
-
-    api.nvim_buf_set_keymap(terminalBuf, 'n', "<C-z>", '', {
+    api.nvim_buf_set_keymap(terminalBuf, 'n', ctx.options.toggleBackFromTerminal, '', {
         callback = toggleBack,
     })
-    api.nvim_buf_set_keymap(terminalBuf, 't', "<C-z>", '', {
+    api.nvim_buf_set_keymap(terminalBuf, 't', ctx.options.toggleBackFromTerminal, '', {
         callback = toggleBack,
     })
     vim.cmd("startinsert")

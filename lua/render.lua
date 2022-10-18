@@ -54,6 +54,13 @@ local function onEntry(ctx, parser, line, diredSize)
     elseif prefix == "-" then
         meta.isFile = true
     end
+    -- Check if the file is executable
+    if meta.isFile then
+        meta.isExe =
+            string.sub(line, 4, 4) == "x" or
+            string.sub(line, 7, 7) == "x" or
+            string.sub(line, 10, 10) == "x"
+    end
     meta.type = type
     insertLine(ctx, parser, line, meta)
     parser.state = 3
@@ -165,7 +172,11 @@ M.render = function(ctx, path, selectName)
             elseif v.isDir then
                 hl = "FexDir"
             else
-                hl = "FexFile"
+                if v.isExe then
+                    hl = "FexExe"
+                else
+                    hl = "FexFile"
+                end
             end
             highlight(ctx, k - 1, start, stop, hl)
             if selectLine == nil then

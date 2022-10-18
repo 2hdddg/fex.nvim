@@ -5,9 +5,10 @@ vim.g.loaded_fex = 1
 
 -- Register highlights
 local highlights = {
-    FexDir = { default = true, link = "netrwDir" },
-    FexFile = { default = true, link = "netrwExe" },
-    FexLink = { default = true, link = "netrwQuickHelp" },
+    FexDir = { default = true, link = "Directory" },
+    FexExe = { default = true, link = "PreProc" },
+    FexFile = { default = true, link = "Identifier" },
+    FexLink = { default = true, link = "Question" },
 }
 for k, v in pairs(highlights) do
   vim.api.nvim_set_hl(0, k, v)

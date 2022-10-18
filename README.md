@@ -31,9 +31,10 @@ In the file browser the following keymaps are available (currently not configura
 * D to delete file or directory
 * R to rename current directory or file
 * Y yanks full path of the current file or directory
+* C-z switches to a terminal with cwd set to the path of the current directory or file
 
 Currently planned to implement in this order:
-* "Terminal here", switch file explorer window into a terminal with current directory matching the one in file explorer
+* Support multiple views corresponding to different ls invocations (sorts, attrs)
 * Recursive rendering of subdirectories with indentation to a specified depth (not relying on ls -R)
 * Folding of above
 * Open file/directory in vsplit/split without attaching preview to it
