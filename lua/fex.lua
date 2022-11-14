@@ -2,10 +2,11 @@ local M = {}
 local api = vim.api
 local id = 0
 local globalOptions = {
-    ls = "-ahl --group-directories-first --time-style=\"long-iso\"",
-    toggleBackFromTerminal = "C-z",
+    ls = "-Ahl --group-directories-first --time-style=\"long-iso\"",
+    toggleBackFromTerminal = "<C-z>",
 }
 local render = require("render").render
+local renderInline = require("render").renderInline
 local paths = require("paths")
 
 local function createBuffer(options)
@@ -135,6 +136,25 @@ M.view = function()
         end)
 end
 
+M.expand = function()
+    view(ctxFromCurrent(),
+        -- Do nothing for files
+        function(path)
+        end,
+        -- Expand the directory here
+        function(path)
+            if path == "." or path == ".." then
+                -- That would be very confusing
+                return
+            end
+            local ctx = ctxFromCurrent()
+            local lines = getLines(ctx)
+            lines = renderInline(ctx, path, lines, 3)
+            -- Store data about the parsed lines in buffer variable
+            api.nvim_buf_set_var(ctx.buf, "lines", lines)
+        end)
+end
+
 M.viewParent = function()
     local ctx = ctxFromCurrent()
     local root = getRoot(ctx)
@@ -233,7 +253,6 @@ M.terminalHere = function()
     vim.api.nvim_win_set_buf(ctx.win, terminalBuf)
     local chanId = vim.fn.termopen("/bin/bash", {cwd = path})
     if chanId == 0 or chanId == -1 then
-        print("Error")
         return
     end
     local function toggleBack()
@@ -242,15 +261,17 @@ M.terminalHere = function()
         -- to notify user about this... Best way would be to be able to detect
         -- any running jobs in the shell and prevent toggling back when something
         -- is running.
-        api.nvim_buf_set_option(terminalBuf, "bufhidden", "wipe")
         vim.fn.jobstop(chanId)
         vim.fn.jobwait({chanId}, 1000)
+        api.nvim_buf_set_option(terminalBuf, "bufhidden", "wipe")
         M.open(path, ctx.options)
     end
     api.nvim_buf_set_keymap(terminalBuf, 'n', ctx.options.toggleBackFromTerminal, '', {
+        noremap = true,
         callback = toggleBack,
     })
     api.nvim_buf_set_keymap(terminalBuf, 't', ctx.options.toggleBackFromTerminal, '', {
+        noremap = true,
         callback = toggleBack,
     })
     vim.cmd("startinsert")
@@ -292,6 +313,11 @@ M.open = function(path, options)
     else
         path = paths.full(path)
     end
+    -- Make sure that path exists
+    local ftype = vim.fn.getftype(path)
+    if ftype == "" then
+        path = vim.fn.getcwd() .. "/"
+    end
     local directory = path
     local filename = paths.name(path)
     if filename then
@@ -313,6 +339,11 @@ M.open = function(path, options)
             keys = "<CR>",
             desc = "Step into directory or open file in current window",
             func = M.view,
+        },
+        {
+            keys = "o",
+            desc = "Expand current directory",
+            func = M.expand,
         },
         {
             keys = "v",

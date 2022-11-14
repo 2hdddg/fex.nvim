@@ -2,8 +2,14 @@ local M = {}
 local api = vim.api
 
 local function insertLine(ctx, parser, line, meta)
-    table.insert(parser.lines, meta)
-    api.nvim_buf_set_lines(ctx.buf, #parser.lines - 1, #parser.lines, false, {line})
+    table.insert(parser.lines, parser.index, meta)
+    local start = parser.index - 1
+    local stop = parser.index - 1
+    if parser.append then
+        stop = parser.index
+    end
+    api.nvim_buf_set_lines(ctx.buf, start, stop, false, {line})
+    parser.index = parser.index + 1
 end
 
 local function highlight(ctx, line, colstart, colend, hl_group)
@@ -66,7 +72,7 @@ local function onEntry(ctx, parser, line, diredSize)
     parser.state = 3
 end
 
-local function parseLine(ctx, parser, line)
+local function parseLine(ctx, rootPath, parser, line)
     if line == nil then
         return false
     end
@@ -87,7 +93,7 @@ local function parseLine(ctx, parser, line)
         if string.find(line, "total", 1, true) ~= nil then
             if parser.state == 0 then
                 -- Add missing root
-                onRoot(ctx, parser, parser.root .. ":", 0)
+                onRoot(ctx, parser, rootPath .. ":", 0)
             end
             -- Add total
             onTotal(ctx, parser, line, size)
@@ -113,6 +119,15 @@ local function parseLine(ctx, parser, line)
     return true
 end
 
+local function executeAndParse(ctx, path, parser)
+    -- Invoke ls command and parse and render the result line by line
+    -- The D option enables special dired output that is needed to avoid parsing filenames
+    local lsCmd = "ls -D " .. ctx.options.ls .. " " .. path
+    local h = io.popen(lsCmd)
+    while parseLine(ctx, path, parser, h:read("*line")) do
+    end
+end
+
 M.render = function(ctx, path, selectName)
     api.nvim_buf_set_option(ctx.buf, 'modifiable', true)
     -- Clear existing lines
@@ -120,12 +135,8 @@ M.render = function(ctx, path, selectName)
     -- Clear highlights
     api.nvim_buf_clear_namespace(ctx.buf, -1, 0, -1)
     -- Invoke ls command and parse and render the result line by line
-    -- The D option enables special dired output that is needed to avoid parsing filenames
-    local lsCmd = "ls -D " .. ctx.options.ls .. " " .. path
-    local h = io.popen(lsCmd)
-    local parser = { root = path, lines = {}, state = 0 }
-    while parseLine(ctx, parser, h:read("*line")) do
-    end
+    local parser = { lines = {}, state = 0, index = 1, append = true }
+    executeAndParse(ctx, path, parser)
     -- Apply dired offsets to be able to locate and highlight names without
     -- having to bother about filename parsing
     local runningOffset = 0
@@ -202,6 +213,15 @@ M.render = function(ctx, path, selectName)
     api.nvim_buf_set_option(ctx.buf, 'modifiable', false)
     -- Someone probably needs to keep track of these
     return parser.lines
+end
+
+M.renderInline = function(ctx, path, lines, lineNumber)
+    api.nvim_buf_set_option(ctx.buf, 'modifiable', true)
+    -- Invoke ls command and parse and render the result line by line
+    local parser = { lines = lines, state = 0, index = lineNumber, append = false }
+    executeAndParse(ctx, path, parser)
+    api.nvim_buf_set_option(ctx.buf, 'modifiable', false)
+    return lines
 end
 
 return M
