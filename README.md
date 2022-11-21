@@ -40,3 +40,9 @@ Currently planned to implement in this order:
 * Open file/directory in vsplit/split without attaching preview to it
 * Configurable keymaps
 * Configurable color scheme
+
+
+![simple](https://user-images.githubusercontent.com/162010/203120608-eb0b01c7-fd64-4811-9186-470385ee9199.png)
+
+![symlinks](https://user-images.githubusercontent.com/162010/203120640-a8cca8c2-5de5-4e9d-92e2-0ce918a17486.png)
+
