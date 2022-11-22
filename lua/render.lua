@@ -4,10 +4,7 @@ local api = vim.api
 local function insertLine(ctx, parser, line, meta)
     table.insert(parser.lines, parser.index, meta)
     local start = parser.index - 1
-    local stop = parser.index - 1
-    if parser.append then
-        stop = parser.index
-    end
+    local stop = parser.index
     api.nvim_buf_set_lines(ctx.buf, start, stop, false, {line})
     parser.index = parser.index + 1
 end
@@ -33,8 +30,6 @@ local function onTotal(ctx, parser, line, diredSize)
 end
 
 local function onEmpty(ctx, parser, diredSize)
-    -- TODO if/when supporting ls -lR (recursive)
-    --insertLine(ctx, parser, "", {type = "FexBlank", dired = diredSize})
     parser.state = 0 --  Enters new section
 end
 
@@ -135,7 +130,7 @@ M.render = function(ctx, path, selectName)
     -- Clear highlights
     api.nvim_buf_clear_namespace(ctx.buf, -1, 0, -1)
     -- Invoke ls command and parse and render the result line by line
-    local parser = { lines = {}, state = 0, index = 1, append = true }
+    local parser = { lines = {}, state = 0, index = 1 }
     executeAndParse(ctx, path, parser)
     -- Apply dired offsets to be able to locate and highlight names without
     -- having to bother about filename parsing
@@ -213,15 +208,6 @@ M.render = function(ctx, path, selectName)
     api.nvim_buf_set_option(ctx.buf, 'modifiable', false)
     -- Someone probably needs to keep track of these
     return parser.lines
-end
-
-M.renderInline = function(ctx, path, lines, lineNumber)
-    api.nvim_buf_set_option(ctx.buf, 'modifiable', true)
-    -- Invoke ls command and parse and render the result line by line
-    local parser = { lines = lines, state = 0, index = lineNumber, append = false }
-    executeAndParse(ctx, path, parser)
-    api.nvim_buf_set_option(ctx.buf, 'modifiable', false)
-    return lines
 end
 
 return M

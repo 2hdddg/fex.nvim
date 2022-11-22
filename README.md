@@ -7,8 +7,16 @@ Neovim file explorer based on ideas from Emacs dired plugin and Vims very own ne
 
 ## Installation
 
-Install with plug:
-  Plug '2hdddg/fex.nvim'
+Install with Plug:
+```viml
+Plug '2hdddg/fex.nvim'
+```
+Install with Paq:
+```lua
+require('paq')({
+    '2hdddg/fex.nvim',
+})
+```
 
 ## Configuration
 
@@ -30,6 +38,10 @@ ls option must contain -l for dired data to become available.
 To start browsing files in directory of current:
 ```lua
 require("fex").open()
+```
+or Vim command
+```viml
+:Fex
 ```
 
 To start browsing a specific direcory:
@@ -55,8 +67,6 @@ In the file browser the following keymaps are available (currently not configura
 
 Currently planned to implement in this order:
 * Support multiple views corresponding to different ls invocations (sorts, attrs)
-* Recursive rendering of subdirectories with indentation to a specified depth (not relying on ls -R)
-* Folding of above
 * Open file/directory in vsplit/split without attaching preview to it
 * Configurable keymaps
 * Configurable color scheme

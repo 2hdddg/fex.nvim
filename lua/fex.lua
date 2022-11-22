@@ -6,7 +6,6 @@ local globalOptions = {
     toggleBackFromTerminal = "<C-z>",
 }
 local render = require("render").render
-local renderInline = require("render").renderInline
 local paths = require("paths")
 
 local function createBuffer(options)
@@ -133,25 +132,6 @@ M.view = function()
         -- Open directory in current window
         function(path)
             show(ctxFromCurrent(), path)
-        end)
-end
-
-M.expand = function()
-    view(ctxFromCurrent(),
-        -- Do nothing for files
-        function(path)
-        end,
-        -- Expand the directory here
-        function(path)
-            if path == "." or path == ".." then
-                -- That would be very confusing
-                return
-            end
-            local ctx = ctxFromCurrent()
-            local lines = getLines(ctx)
-            lines = renderInline(ctx, path, lines, 3)
-            -- Store data about the parsed lines in buffer variable
-            api.nvim_buf_set_var(ctx.buf, "lines", lines)
         end)
 end
 
@@ -339,11 +319,6 @@ M.open = function(path, options)
             keys = "<CR>",
             desc = "Step into directory or open file in current window",
             func = M.view,
-        },
-        {
-            keys = "o",
-            desc = "Expand current directory",
-            func = M.expand,
         },
         {
             keys = "v",
