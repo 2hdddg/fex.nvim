@@ -52,7 +52,7 @@ local function getCurrent(ctx)
     curr.root = getRoot(ctx)
     if curr.isRoot then
         curr.fullPath = curr.root.name
-    elseif curr.isFile or curr.isDir then
+    else
         curr.fullPath = paths.add(curr.root.name, curr.name)
     end
     return curr
@@ -60,11 +60,14 @@ end
 
 local function view(ctx, onFile, onDir)
     local curr = getCurrent(ctx)
-    if curr.isLink then
-        path = curr.linkPath
-    end
     if curr.isDir then
-        onDir(curr.fullPath)
+        if curr.isLink then
+            -- This will move away from path and resolve the actual link.
+            -- Maybe not what is wanted at all times..
+            onDir(curr.linkPath)
+        else
+            onDir(curr.fullPath)
+        end
     else
         onFile(curr.fullPath)
     end
