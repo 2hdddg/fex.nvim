@@ -219,15 +219,7 @@ end
 
 M.terminalHere = function()
     local ctx = ctxFromCurrent()
-    local curr = getCurrent(ctx)
-    local path
-    if curr.isFile then
-        path = curr.root.name
-    elseif curr.isDir then
-        path = curr.fullPath
-    else
-        return
-    end
+    local path = getRoot(ctx).name
 
     -- Create new listed buf. List it so that any running jobs in the terminal
     -- isn't lost to the user.
