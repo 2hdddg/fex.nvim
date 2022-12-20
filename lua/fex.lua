@@ -1,12 +1,12 @@
 local M = {}
 local api = vim.api
-local id = 0
 local globalOptions = {
     ls = "-Ahl --group-directories-first --time-style=\"long-iso\"",
     toggleBackFromTerminal = "<C-z>",
 }
 local render = require("render").render
 local paths = require("paths")
+local id = 0
 
 local function createBuffer(options)
     local buf = api.nvim_create_buf(false, true)
@@ -39,8 +39,12 @@ local function getRoot(ctx)
 end
 
 local function show(ctx, path, optionalFilename)
+    -- To avoid duplicated name prefix with fex and sequence number.
+    -- This makes sure that Fex can co exist with netrw and also
+    -- make sure that the same directory can be open in two different
+    -- buffers.
     id = id + 1
-    api.nvim_buf_set_name(ctx.buf, "fex " .. path .. " " .. id)
+    api.nvim_buf_set_name(ctx.buf, "fex" .. id .. " " .. path)
     local lines = render(ctx, path, optionalFilename)
     -- Store data about the parsed lines in buffer variable
     api.nvim_buf_set_var(ctx.buf, "lines", lines)
@@ -217,39 +221,51 @@ M.yankPath = function()
     vim.fn.setreg(vim.v.register, curr.fullPath, "l")
 end
 
-M.terminalHere = function()
+M.terminalHere = function(cmd)
     local ctx = ctxFromCurrent()
     local path = getRoot(ctx).name
-
+    if not cmd then
+        cmd = "sp"
+    end
+    -- Open terminal in split
+    vim.cmd(cmd)
+    local newWin = api.nvim_get_current_win()
     -- Create new listed buf. List it so that any running jobs in the terminal
-    -- isn't lost to the user.
+    -- isn't lost to the user and switch to showing that in the new window.
     local terminalBuf = api.nvim_create_buf(true, true)
-    -- Switch to showing the new buffer. This will erase the current fex buffer.
-    vim.api.nvim_win_set_buf(ctx.win, terminalBuf)
+    vim.api.nvim_win_set_buf(newWin, terminalBuf)
     local chanId = vim.fn.termopen("/bin/bash", {cwd = path})
     if chanId == 0 or chanId == -1 then
         return
     end
-    local function toggleBack()
-        -- Executing in terminal buffer. Reopen the explorer but terminate
-        -- any jobs running in the terminal first. Should perhaps be a way
-        -- to notify user about this... Best way would be to be able to detect
-        -- any running jobs in the shell and prevent toggling back when something
-        -- is running.
-        vim.fn.jobstop(chanId)
-        vim.fn.jobwait({chanId}, 1000)
-        api.nvim_buf_set_option(terminalBuf, "bufhidden", "wipe")
-        M.open(path, ctx.options)
+    cmd = "startinsert"
+    vim.cmd(cmd)
+end
+
+M.information = function()
+    local ctx = ctxFromCurrent()
+    local curr = getCurrent(ctx)
+    if not (curr.isDir or curr.isFile) then
+        return
     end
-    api.nvim_buf_set_keymap(terminalBuf, 'n', ctx.options.toggleBackFromTerminal, '', {
-        noremap = true,
-        callback = toggleBack,
-    })
-    api.nvim_buf_set_keymap(terminalBuf, 't', ctx.options.toggleBackFromTerminal, '', {
-        noremap = true,
-        callback = toggleBack,
-    })
-    vim.cmd("startinsert")
+    -- Collect output from file command. Ever more than one line?
+    lines = {}
+    for line in io.popen("file " .. curr.fullPath):lines() do
+        table.insert(lines, line)
+    end
+    local buf = api.nvim_create_buf(false, true)
+    api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    api.nvim_buf_set_option(buf, 'modifiable', false)
+    api.nvim_buf_set_option(buf, 'buftype', "nofile")
+    api.nvim_buf_set_option(buf, 'bufhidden', "wipe")
+    api.nvim_buf_set_keymap(buf, "n", "q", "<cmd>q<cr>", {noremap=true, silent=true})
+    local opts = {
+        relative='cursor',
+        row=1, col=0,
+        width=50, height=1,
+        border="single",
+        noautocmd=true}
+    api.nvim_open_win(buf, true, opts)
 end
 
 local function setKeymaps(ctx, keymaps)
@@ -285,12 +301,18 @@ M.open = function(path, options)
     options = merge(globalOptions, options)
     if path == nil then
         path = paths.currentFile()
+        local buf_type = api.nvim_buf_get_option(0, "filetype")
+        if buf_type == "fex" then
+            -- Special treatment when opening (refreshing) a fex buffer
+            path = string.gsub(path, "^fex%d ", "")
+        end
     else
         path = paths.full(path)
     end
     -- Make sure that path exists
     local ftype = vim.fn.getftype(path)
     if ftype == "" then
+        -- Last resort, open current working directory
         path = vim.fn.getcwd() .. "/"
     end
     local directory = path
@@ -359,6 +381,11 @@ M.open = function(path, options)
             keys = "<C-z>",
             desc = "Terminal here",
             func = M.terminalHere,
+        },
+        {
+            keys = "i",
+            desc = "Information",
+            func = M.information,
         },
     }
     setKeymaps(ctx, keymaps)
