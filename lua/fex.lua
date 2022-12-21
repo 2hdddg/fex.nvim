@@ -300,11 +300,12 @@ end
 M.open = function(path, options)
     options = merge(globalOptions, options)
     if path == nil then
-        path = paths.currentFile()
         local buf_type = api.nvim_buf_get_option(0, "filetype")
         if buf_type == "fex" then
             -- Special treatment when opening (refreshing) a fex buffer
-            path = string.gsub(path, "^fex%d ", "")
+            path = string.gsub(vim.fn.expand("%"), "^fex%d ", "") .. "/"
+        else
+            path = paths.currentFile()
         end
     else
         path = paths.full(path)
