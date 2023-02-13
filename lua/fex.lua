@@ -6,7 +6,6 @@ local globalOptions = {
 }
 local render = require("render").render
 local paths = require("paths")
-local id = 0
 
 local function createBuffer(options)
     local buf = api.nvim_create_buf(false, true)
@@ -38,13 +37,23 @@ local function getRoot(ctx)
     end
 end
 
+local function find_buffer(path)
+    for buffer = 1, vim.fn.bufnr("$") do
+        if vim.fn.bufname(buffer) == path then
+            return buffer
+        end
+    end
+    return nil
+end
+
 local function show(ctx, path, optionalFilename)
-    -- To avoid duplicated name prefix with fex and sequence number.
-    -- This makes sure that Fex can co exist with netrw and also
-    -- make sure that the same directory can be open in two different
-    -- buffers.
-    id = id + 1
-    api.nvim_buf_set_name(ctx.buf, "fex" .. id .. " " .. path)
+    -- Delete existing buffer with this name, but no force..
+    -- This will happen when revisiting the same path
+    local existing = find_buffer(path)
+    if existing then
+        api.nvim_buf_delete(existing, {})
+    end
+    api.nvim_buf_set_name(ctx.buf, path)
     local lines = render(ctx, path, optionalFilename)
     -- Store data about the parsed lines in buffer variable
     api.nvim_buf_set_var(ctx.buf, "lines", lines)
