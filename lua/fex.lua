@@ -404,6 +404,23 @@ end
 
 M.setup = function(options)
     globalOptions = merge(globalOptions, options)
+    -- Disable netrw and hook up fex to open directories
+    local augroup = vim.api.nvim_create_augroup("Fex", {clear = true})
+    local openFexWhenDir = function(opts)
+        if vim.api.nvim_buf_line_count(0) > 1 then
+            return
+        end
+        if vim.fn.isdirectory(opts.match) == 0 then
+            return
+        end
+        vim.api.nvim_buf_delete(0, {})
+        require('fex').open(opts.file)
+    end
+    vim.api.nvim_create_autocmd({"BufEnter", "VimEnter"}, {
+        group = augroup,
+        pattern = {"*"},
+        callback = openFexWhenDir,
+    })
 end
 
 return M
