@@ -6,6 +6,7 @@ local globalOptions = {
 }
 local render = require("render").render
 local paths = require("paths")
+local id = 0
 
 local function createBuffer(options)
     local buf = api.nvim_create_buf(false, true)
@@ -37,23 +38,7 @@ local function getRoot(ctx)
     end
 end
 
-local function find_buffer(path)
-    for buffer = 1, vim.fn.bufnr("$") do
-        if vim.fn.bufname(buffer) == path then
-            return buffer
-        end
-    end
-    return nil
-end
-
 local function show(ctx, path, optionalFilename)
-    -- Delete existing buffer with this name, but no force..
-    -- This will happen when revisiting the same path
-    local existing = find_buffer(path)
-    if existing then
-        api.nvim_buf_delete(existing, {})
-    end
-    api.nvim_buf_set_name(ctx.buf, path)
     local lines = render(ctx, path, optionalFilename)
     -- Store data about the parsed lines in buffer variable
     api.nvim_buf_set_var(ctx.buf, "lines", lines)
@@ -309,13 +294,7 @@ end
 M.open = function(path, options)
     options = merge(globalOptions, options)
     if path == nil then
-        local buf_type = api.nvim_buf_get_option(0, "filetype")
-        if buf_type == "fex" then
-            -- Special treatment when opening (refreshing) a fex buffer
-            path = string.gsub(vim.fn.expand("%"), "^fex%d ", "") .. "/"
-        else
-            path = paths.currentFile()
-        end
+        path = paths.currentFile()
     else
         path = paths.full(path)
     end
@@ -417,12 +396,29 @@ M.setup = function(options)
             if vim.fn.isdirectory(opts.match) == 0 then
                 return
             end
-            -- If already opened, no need to do anything
-            if vim.api.nvim_buf_line_count(0) > 1 then
+            local filetype = api.nvim_buf_get_option(0, "filetype")
+            -- If already a fex buffer, rename it back
+            if filetype == "fex" then
+                api.nvim_buf_set_name(0, string.gsub(vim.fn.expand("%"), "^fex%d ", "") .. "/")
                 return
             end
             vim.api.nvim_buf_delete(0, {})
             M.open(opts.file)
+        end,
+    })
+    vim.api.nvim_create_autocmd({"BufLeave"}, {
+        group = augroup,
+        pattern = {"*"},
+        callback = function(opts)
+            local filetype = api.nvim_buf_get_option(0, "filetype")
+            -- When leaving a fex buffer, generate a unique buffer name
+            -- to allow for user to browse to the same directory in
+            -- another window
+            if filetype == "fex" then
+                id = id + 1
+                api.nvim_buf_set_name(0, "fex" .. id .. " " .. vim.fn.expand("%"))
+                return
+            end
         end,
     })
 end
