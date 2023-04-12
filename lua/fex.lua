@@ -10,8 +10,9 @@ local id = 0
 
 local function createBuffer(options)
     local buf = api.nvim_create_buf(false, true)
-    api.nvim_buf_set_option(buf, "buftype", "nofile")
-    api.nvim_buf_set_option(buf, "bufhidden", "wipe")
+    api.nvim_buf_set_option(buf, "buftype", "nowrite")
+    api.nvim_buf_set_option(buf, "bufhidden", "delete")
+    -- TODO: Disable swap
     api.nvim_buf_set_option(buf, "filetype", "fex")
     api.nvim_buf_set_var(buf, "options", options)
     api.nvim_buf_set_var(buf, "preview", nil)
@@ -399,7 +400,7 @@ M.setup = function(options)
             local filetype = api.nvim_buf_get_option(0, "filetype")
             -- If already a fex buffer, rename it back
             if filetype == "fex" then
-                api.nvim_buf_set_name(0, string.gsub(vim.fn.expand("%"), "^fex%d ", "") .. "/")
+                --api.nvim_buf_set_name(0, string.gsub(vim.fn.expand("%"), "^fex%d ", "") .. "/")
                 return
             end
             vim.api.nvim_buf_delete(0, {})
@@ -416,7 +417,7 @@ M.setup = function(options)
             -- another window
             if filetype == "fex" then
                 id = id + 1
-                api.nvim_buf_set_name(0, "fex" .. id .. " " .. vim.fn.expand("%"))
+                --api.nvim_buf_set_name(0, "fex" .. id .. " " .. vim.fn.expand("%"))
                 return
             end
         end,
